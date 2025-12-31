@@ -7,8 +7,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-simplelogs}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # ports:
-    #   - "5432:5432"  # Don't expose to internet! Only uncomment for local dev
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -25,8 +23,6 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
       CORS_ORIGINS: '["https://${DOMAIN:-localhost}", "http://${DOMAIN:-localhost}", "http://localhost:5173"]'
-    ports:
-      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
