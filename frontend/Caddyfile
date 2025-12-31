@@ -1,0 +1,13 @@
+{$DOMAIN:localhost} {
+    # API proxy - handle first
+    handle /api/* {
+        reverse_proxy backend:8000
+    }
+
+    # SPA - serve static files, fallback to index.html
+    handle {
+        root * /usr/share/caddy
+        try_files {path} /index.html
+        file_server
+    }
+}

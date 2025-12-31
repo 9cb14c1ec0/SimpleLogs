@@ -1,0 +1,10 @@
+[project]
+name = "simplelogs"
+version = "0.1.0"
+description = "A logging storage and search application"
+requires-python = ">=3.11"
+
+[tool.aerich]
+tortoise_orm = "app.db.TORTOISE_ORM"
+location = "./migrations"
+src_folder = "./."
