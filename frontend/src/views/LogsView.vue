@@ -73,46 +73,77 @@
       </v-card-text>
     </v-card>
 
-    <!-- Column Settings -->
-    <div class="d-flex justify-end mb-2" v-if="availableMetadataKeys.length > 0">
+    <!-- Column Settings & Copy Button -->
+    <div class="d-flex justify-end mb-2 gap-2">
+      <v-btn
+        variant="outlined"
+        size="small"
+        prepend-icon="mdi-content-copy"
+        @click="copyTableToClipboard"
+        :disabled="logs.length === 0"
+      >
+        Copy Table
+      </v-btn>
       <v-menu v-model="columnMenuOpen" :close-on-content-click="false" location="bottom end">
         <template #activator="{ props }">
           <v-btn v-bind="props" variant="outlined" size="small" prepend-icon="mdi-table-column">
             Columns
-            <v-badge
-              v-if="selectedMetadataColumns.length > 0"
-              :content="selectedMetadataColumns.length"
-              color="primary"
-              inline
-              class="ml-1"
-            />
           </v-btn>
         </template>
-        <v-card min-width="250">
-          <v-card-title class="text-subtitle-1 pb-0">Metadata Columns</v-card-title>
+        <v-card min-width="280" max-height="400" class="overflow-auto">
+          <!-- Standard Columns Section -->
+          <v-card-title class="text-subtitle-1 pb-0">Standard Columns</v-card-title>
           <v-card-text class="pb-0">
             <div class="d-flex gap-2 mb-2">
-              <v-btn size="x-small" variant="text" @click="selectAllColumns">Select all</v-btn>
-              <v-btn size="x-small" variant="text" @click="clearAllColumns">Clear all</v-btn>
+              <v-btn size="x-small" variant="text" @click="showAllStandardColumns">Show all</v-btn>
+              <v-btn size="x-small" variant="text" @click="hideAllStandardColumns">Hide all</v-btn>
             </div>
-            <v-divider class="mb-2" />
             <v-list density="compact" class="py-0">
               <v-list-item
-                v-for="key in availableMetadataKeys"
+                v-for="key in standardColumnKeys"
                 :key="key"
-                @click="toggleMetadataColumn(key)"
+                @click="toggleStandardColumn(key)"
                 class="px-0"
               >
                 <template #prepend>
                   <v-checkbox-btn
-                    :model-value="isColumnSelected(key)"
-                    @click.stop="toggleMetadataColumn(key)"
+                    :model-value="isStandardColumnVisible(key)"
+                    @click.stop="toggleStandardColumn(key)"
                   />
                 </template>
-                <v-list-item-title class="text-body-2">{{ key }}</v-list-item-title>
+                <v-list-item-title class="text-body-2 text-capitalize">{{ key }}</v-list-item-title>
               </v-list-item>
             </v-list>
           </v-card-text>
+
+          <!-- Metadata Columns Section -->
+          <template v-if="availableMetadataKeys.length > 0">
+            <v-divider class="my-2" />
+            <v-card-title class="text-subtitle-1 pb-0">Metadata Columns</v-card-title>
+            <v-card-text class="pb-0">
+              <div class="d-flex gap-2 mb-2">
+                <v-btn size="x-small" variant="text" @click="selectAllMetadataColumns">Select all</v-btn>
+                <v-btn size="x-small" variant="text" @click="clearAllMetadataColumns">Clear all</v-btn>
+              </div>
+              <v-list density="compact" class="py-0">
+                <v-list-item
+                  v-for="key in availableMetadataKeys"
+                  :key="key"
+                  @click="toggleMetadataColumn(key)"
+                  class="px-0"
+                >
+                  <template #prepend>
+                    <v-checkbox-btn
+                      :model-value="isMetadataColumnSelected(key)"
+                      @click.stop="toggleMetadataColumn(key)"
+                    />
+                  </template>
+                  <v-list-item-title class="text-body-2">{{ key }}</v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </v-card-text>
+          </template>
+
           <v-card-actions>
             <v-spacer />
             <v-btn size="small" @click="columnMenuOpen = false">Done</v-btn>
@@ -177,6 +208,11 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Copy Snackbar -->
+    <v-snackbar v-model="copiedSnackbar" :timeout="2000" color="success">
+      Table copied to clipboard
+    </v-snackbar>
   </div>
 </template>
 
@@ -200,19 +236,25 @@ const metadataDialog = ref(false)
 const selectedLog = ref<Log | null>(null)
 const columnMenuOpen = ref(false)
 
-// Metadata columns state
+// Column visibility state
 const availableMetadataKeys = ref<string[]>([])
 const selectedMetadataColumns = ref<string[]>([])
 
+// Standard columns that can be toggled
+const standardColumnKeys = ['timestamp', 'level', 'source', 'message'] as const
+const visibleStandardColumns = ref<string[]>([...standardColumnKeys])
+
 // LocalStorage key for persisting column preferences
-const storageKey = `simplelogs-metadata-columns-${teamId}`
+const storageKey = `simplelogs-columns-${teamId}`
 
 // Load saved column preferences from localStorage
 function loadColumnPreferences() {
   try {
     const saved = localStorage.getItem(storageKey)
     if (saved) {
-      selectedMetadataColumns.value = JSON.parse(saved)
+      const prefs = JSON.parse(saved)
+      if (prefs.metadata) selectedMetadataColumns.value = prefs.metadata
+      if (prefs.standard) visibleStandardColumns.value = prefs.standard
     }
   } catch {
     // Ignore parse errors
@@ -221,11 +263,14 @@ function loadColumnPreferences() {
 
 // Save column preferences to localStorage
 function saveColumnPreferences() {
-  localStorage.setItem(storageKey, JSON.stringify(selectedMetadataColumns.value))
+  localStorage.setItem(storageKey, JSON.stringify({
+    metadata: selectedMetadataColumns.value,
+    standard: visibleStandardColumns.value,
+  }))
 }
 
 // Watch for changes to selected columns and persist
-watch(selectedMetadataColumns, saveColumnPreferences, { deep: true })
+watch([selectedMetadataColumns, visibleStandardColumns], saveColumnPreferences, { deep: true })
 
 // Extract unique metadata keys from logs
 function extractMetadataKeys(logItems: Log[]): string[] {
@@ -248,19 +293,44 @@ function toggleMetadataColumn(key: string) {
   }
 }
 
+// Toggle a standard column
+function toggleStandardColumn(key: string) {
+  const index = visibleStandardColumns.value.indexOf(key)
+  if (index === -1) {
+    visibleStandardColumns.value.push(key)
+  } else {
+    visibleStandardColumns.value.splice(index, 1)
+  }
+}
+
 // Check if a metadata column is selected
-function isColumnSelected(key: string): boolean {
+function isMetadataColumnSelected(key: string): boolean {
   return selectedMetadataColumns.value.includes(key)
 }
 
+// Check if a standard column is visible
+function isStandardColumnVisible(key: string): boolean {
+  return visibleStandardColumns.value.includes(key)
+}
+
 // Select all metadata columns
-function selectAllColumns() {
+function selectAllMetadataColumns() {
   selectedMetadataColumns.value = [...availableMetadataKeys.value]
 }
 
 // Clear all metadata columns
-function clearAllColumns() {
+function clearAllMetadataColumns() {
   selectedMetadataColumns.value = []
+}
+
+// Show all standard columns
+function showAllStandardColumns() {
+  visibleStandardColumns.value = [...standardColumnKeys]
+}
+
+// Hide all standard columns
+function hideAllStandardColumns() {
+  visibleStandardColumns.value = []
 }
 
 // Get display value for a metadata field
@@ -289,23 +359,30 @@ const search = reactive({
 
 const levelOptions = ['debug', 'info', 'warn', 'error', 'fatal']
 
-const baseHeaders = [
-  { title: 'Timestamp', key: 'timestamp', width: '180px' },
-  { title: 'Level', key: 'level', width: '100px' },
-  { title: 'Source', key: 'source', width: '120px' },
-  { title: 'Message', key: 'message' },
-]
+const allStandardHeaders: Record<string, { title: string; key: string; width?: string }> = {
+  timestamp: { title: 'Timestamp', key: 'timestamp', width: '180px' },
+  level: { title: 'Level', key: 'level', width: '100px' },
+  source: { title: 'Source', key: 'source', width: '120px' },
+  message: { title: 'Message', key: 'message' },
+}
 
 const metadataHeader = { title: 'Metadata', key: 'metadata', width: '100px', sortable: false }
 
 const headers = computed(() => {
+  // Filter standard headers based on visibility
+  const visibleBaseHeaders = standardColumnKeys
+    .filter(key => visibleStandardColumns.value.includes(key))
+    .map(key => allStandardHeaders[key])
+
+  // Add selected metadata columns
   const metadataColumns = selectedMetadataColumns.value.map(key => ({
     title: key,
     key: `metadata.${key}`,
     width: '150px',
     sortable: false,
   }))
-  return [...baseHeaders, ...metadataColumns, metadataHeader]
+
+  return [...visibleBaseHeaders, ...metadataColumns, metadataHeader]
 })
 
 onMounted(async () => {
@@ -392,6 +469,44 @@ function showMetadata(log: Log) {
   selectedLog.value = log
   metadataDialog.value = true
 }
+
+// Copy table data to clipboard as TSV for Excel
+async function copyTableToClipboard() {
+  // Build header row (excluding the "Metadata" column which is just a button)
+  const visibleHeaders = headers.value.filter(h => h.key !== 'metadata')
+  const headerRow = visibleHeaders.map(h => h.title).join('\t')
+
+  // Build data rows
+  const dataRows = logs.value.map(log => {
+    return visibleHeaders.map(header => {
+      const key = header.key
+      if (key === 'timestamp') {
+        return formatDate(log.timestamp)
+      } else if (key === 'level') {
+        return log.level.toUpperCase()
+      } else if (key === 'source') {
+        return log.source || ''
+      } else if (key === 'message') {
+        return log.message
+      } else if (key.startsWith('metadata.')) {
+        const metaKey = key.substring(9)
+        return getMetadataValue(log, metaKey)
+      }
+      return ''
+    }).join('\t')
+  }).join('\n')
+
+  const tsv = `${headerRow}\n${dataRows}`
+
+  try {
+    await navigator.clipboard.writeText(tsv)
+    copiedSnackbar.value = true
+  } catch (err) {
+    console.error('Failed to copy:', err)
+  }
+}
+
+const copiedSnackbar = ref(false)
 </script>
 
 <style scoped>
