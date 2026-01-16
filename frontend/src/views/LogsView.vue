@@ -73,6 +73,54 @@
       </v-card-text>
     </v-card>
 
+    <!-- Column Settings -->
+    <div class="d-flex justify-end mb-2" v-if="availableMetadataKeys.length > 0">
+      <v-menu v-model="columnMenuOpen" :close-on-content-click="false" location="bottom end">
+        <template #activator="{ props }">
+          <v-btn v-bind="props" variant="outlined" size="small" prepend-icon="mdi-table-column">
+            Columns
+            <v-badge
+              v-if="selectedMetadataColumns.length > 0"
+              :content="selectedMetadataColumns.length"
+              color="primary"
+              inline
+              class="ml-1"
+            />
+          </v-btn>
+        </template>
+        <v-card min-width="250">
+          <v-card-title class="text-subtitle-1 pb-0">Metadata Columns</v-card-title>
+          <v-card-text class="pb-0">
+            <div class="d-flex gap-2 mb-2">
+              <v-btn size="x-small" variant="text" @click="selectAllColumns">Select all</v-btn>
+              <v-btn size="x-small" variant="text" @click="clearAllColumns">Clear all</v-btn>
+            </div>
+            <v-divider class="mb-2" />
+            <v-list density="compact" class="py-0">
+              <v-list-item
+                v-for="key in availableMetadataKeys"
+                :key="key"
+                @click="toggleMetadataColumn(key)"
+                class="px-0"
+              >
+                <template #prepend>
+                  <v-checkbox-btn
+                    :model-value="isColumnSelected(key)"
+                    @click.stop="toggleMetadataColumn(key)"
+                  />
+                </template>
+                <v-list-item-title class="text-body-2">{{ key }}</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn size="small" @click="columnMenuOpen = false">Done</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-menu>
+    </div>
+
     <!-- Logs Table -->
     <v-card>
       <v-data-table-server
@@ -96,6 +144,15 @@
         <template #item.message="{ item }">
           <div class="text-truncate" style="max-width: 400px;">
             {{ item.message }}
+          </div>
+        </template>
+        <template
+          v-for="key in selectedMetadataColumns"
+          :key="key"
+          #[`item.metadata.${key}`]="{ item }"
+        >
+          <div class="text-truncate metadata-cell">
+            {{ getMetadataValue(item, key) }}
           </div>
         </template>
         <template #item.metadata="{ item }">
@@ -124,7 +181,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, reactive } from 'vue'
+import { onMounted, ref, reactive, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api, { type Log } from '@/api/client'
 
@@ -141,6 +198,85 @@ const itemsPerPage = ref(50)
 
 const metadataDialog = ref(false)
 const selectedLog = ref<Log | null>(null)
+const columnMenuOpen = ref(false)
+
+// Metadata columns state
+const availableMetadataKeys = ref<string[]>([])
+const selectedMetadataColumns = ref<string[]>([])
+
+// LocalStorage key for persisting column preferences
+const storageKey = `simplelogs-metadata-columns-${teamId}`
+
+// Load saved column preferences from localStorage
+function loadColumnPreferences() {
+  try {
+    const saved = localStorage.getItem(storageKey)
+    if (saved) {
+      selectedMetadataColumns.value = JSON.parse(saved)
+    }
+  } catch {
+    // Ignore parse errors
+  }
+}
+
+// Save column preferences to localStorage
+function saveColumnPreferences() {
+  localStorage.setItem(storageKey, JSON.stringify(selectedMetadataColumns.value))
+}
+
+// Watch for changes to selected columns and persist
+watch(selectedMetadataColumns, saveColumnPreferences, { deep: true })
+
+// Extract unique metadata keys from logs
+function extractMetadataKeys(logItems: Log[]): string[] {
+  const keys = new Set<string>()
+  logItems.forEach(log => {
+    if (log.metadata) {
+      Object.keys(log.metadata).forEach(key => keys.add(key))
+    }
+  })
+  return Array.from(keys).sort()
+}
+
+// Toggle a metadata column
+function toggleMetadataColumn(key: string) {
+  const index = selectedMetadataColumns.value.indexOf(key)
+  if (index === -1) {
+    selectedMetadataColumns.value.push(key)
+  } else {
+    selectedMetadataColumns.value.splice(index, 1)
+  }
+}
+
+// Check if a metadata column is selected
+function isColumnSelected(key: string): boolean {
+  return selectedMetadataColumns.value.includes(key)
+}
+
+// Select all metadata columns
+function selectAllColumns() {
+  selectedMetadataColumns.value = [...availableMetadataKeys.value]
+}
+
+// Clear all metadata columns
+function clearAllColumns() {
+  selectedMetadataColumns.value = []
+}
+
+// Get display value for a metadata field
+function getMetadataValue(log: Log, key: string): string {
+  if (!log.metadata || !(key in log.metadata)) {
+    return '-'
+  }
+  const value = log.metadata[key]
+  if (value === null || value === undefined) {
+    return '-'
+  }
+  if (typeof value === 'object') {
+    return JSON.stringify(value)
+  }
+  return String(value)
+}
 
 const search = reactive({
   q: '',
@@ -153,15 +289,27 @@ const search = reactive({
 
 const levelOptions = ['debug', 'info', 'warn', 'error', 'fatal']
 
-const headers = [
+const baseHeaders = [
   { title: 'Timestamp', key: 'timestamp', width: '180px' },
   { title: 'Level', key: 'level', width: '100px' },
   { title: 'Source', key: 'source', width: '120px' },
   { title: 'Message', key: 'message' },
-  { title: 'Metadata', key: 'metadata', width: '100px', sortable: false },
 ]
 
+const metadataHeader = { title: 'Metadata', key: 'metadata', width: '100px', sortable: false }
+
+const headers = computed(() => {
+  const metadataColumns = selectedMetadataColumns.value.map(key => ({
+    title: key,
+    key: `metadata.${key}`,
+    width: '150px',
+    sortable: false,
+  }))
+  return [...baseHeaders, ...metadataColumns, metadataHeader]
+})
+
 onMounted(async () => {
+  loadColumnPreferences()
   try {
     const response = await api.get(`/admin/teams/${teamId}`)
     teamName.value = response.data.name
@@ -195,6 +343,12 @@ async function fetchLogs() {
     const response = await api.get(`/teams/${teamId}/logs?${params.toString()}`)
     logs.value = response.data.items
     totalLogs.value = response.data.total
+
+    // Extract available metadata keys from fetched logs
+    const newKeys = extractMetadataKeys(response.data.items)
+    // Merge with existing keys to preserve previously seen keys
+    const allKeys = new Set([...availableMetadataKeys.value, ...newKeys])
+    availableMetadataKeys.value = Array.from(allKeys).sort()
   } catch (error) {
     console.error('Failed to fetch logs:', error)
   } finally {
@@ -244,5 +398,11 @@ function showMetadata(log: Log) {
 pre {
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+.metadata-cell {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>
