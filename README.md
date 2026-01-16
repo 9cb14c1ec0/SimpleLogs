@@ -2,6 +2,8 @@
 
 A self-hosted logging storage and search application with a simple API for log ingestion.
 
+<img width="1674" height="964" alt="image" src="https://github.com/user-attachments/assets/bb234963-f4cc-42cc-a462-6603c338c1a3" />
+
 ## Features
 
 - **Simple Ingestion API** - Send logs with 2 lines of code from any language
