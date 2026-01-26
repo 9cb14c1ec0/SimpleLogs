@@ -1,6 +1,6 @@
+import bcrypt
 from tortoise import fields
 from tortoise.models import Model
-from passlib.hash import bcrypt
 
 
 class User(Model):
@@ -20,10 +20,10 @@ class User(Model):
         table = "users"
 
     def set_password(self, password: str):
-        self.password_hash = bcrypt.hash(password)
+        self.password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
     def verify_password(self, password: str) -> bool:
-        return bcrypt.verify(password, self.password_hash)
+        return bcrypt.checkpw(password.encode(), self.password_hash.encode())
 
     async def get_teams(self):
         """Get all teams this user belongs to."""
