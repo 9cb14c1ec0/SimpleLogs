@@ -2,7 +2,6 @@ from uuid import UUID
 from typing import Annotated
 from datetime import datetime
 from fastapi import APIRouter, Query, Depends, HTTPException, status, Request
-from tortoise.expressions import RawSQL
 from app.models import Log, LogLevel
 from app.schemas import LogResponse
 from app.api.deps import get_team_member, CurrentUser
@@ -77,7 +76,7 @@ async def search_logs(
     # Pagination
     offset = (page - 1) * limit
     total = await query.count()
-    logs = await query.offset(offset).limit(limit).order_by("-timestamp")
+    logs = await query.offset(offset).limit(limit)  # Uses default ordering by -id
 
     return {
         "items": [LogResponse.model_validate(log, from_attributes=True) for log in logs],
@@ -89,7 +88,7 @@ async def search_logs(
 
 
 @router.get("/{team_id}/logs/{log_id}", response_model=LogResponse)
-async def get_log(team_id: UUID, log_id: UUID, user: CurrentUser):
+async def get_log(team_id: UUID, log_id: int, user: CurrentUser):
     """Get a single log entry by ID."""
     team, membership = await get_team_member(team_id, user)
 

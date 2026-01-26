@@ -12,7 +12,7 @@ class LogLevel(str, Enum):
 
 
 class Log(Model):
-    id = fields.UUIDField(pk=True)
+    id = fields.BigIntField(pk=True)  # Auto-increment for efficient ordering
     team = fields.ForeignKeyField("models.Team", related_name="logs", on_delete=fields.CASCADE, index=True)
     timestamp = fields.DatetimeField(index=True)
     level = fields.CharEnumField(LogLevel, index=True)
@@ -23,4 +23,4 @@ class Log(Model):
 
     class Meta:
         table = "logs"
-        ordering = ["-timestamp"]
+        ordering = ["-id"]  # Order by id (insertion order) instead of timestamp

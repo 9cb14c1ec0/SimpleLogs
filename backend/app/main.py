@@ -9,6 +9,7 @@ from app.db import init_db, close_db
 from app.api import api_router
 from app.models import User
 from app.services.retention import RetentionService
+from app.migrations import run_migrations
 
 settings = get_settings()
 scheduler = AsyncIOScheduler()
@@ -32,6 +33,7 @@ async def create_admin_user():
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
+    await run_migrations()
     await create_admin_user()
 
     # Start retention cleanup scheduler (runs every hour)

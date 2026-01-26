@@ -18,7 +18,7 @@ class LogBatchCreate(BaseModel):
 
 
 class LogResponse(BaseModel):
-    id: UUID
+    id: int
     team_id: UUID
     timestamp: datetime
     level: LogLevel
