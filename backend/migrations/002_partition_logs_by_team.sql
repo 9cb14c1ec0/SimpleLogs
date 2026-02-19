@@ -3,6 +3,7 @@
 -- Level 2: RANGE by created_at monthly (enables instant retention via partition drops)
 --
 -- Idempotency: Checks if logs is already partitioned before running.
+-- Recovery: If a previous run failed mid-migration, detects logs_old and rolls back.
 
 DO $$
 DECLARE
@@ -16,6 +17,23 @@ DECLARE
     end_date DATE;
     max_id BIGINT;
 BEGIN
+    -- Recover from a partially-applied migration: if logs_old exists, the previous
+    -- run renamed the original table but failed before completing. Undo that work
+    -- so we can retry cleanly.
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'logs_old'
+    ) THEN
+        RAISE NOTICE 'Detected partial migration state (logs_old exists), recovering...';
+        DROP TABLE IF EXISTS logs CASCADE;
+        DROP SEQUENCE IF EXISTS logs_id_seq;
+        ALTER TABLE logs_old RENAME TO logs;
+        IF EXISTS (SELECT 1 FROM pg_sequences WHERE sequencename = 'logs_old_id_seq') THEN
+            ALTER SEQUENCE logs_old_id_seq RENAME TO logs_id_seq;
+        END IF;
+        RAISE NOTICE 'Recovery complete, proceeding with migration';
+    END IF;
+
     -- Check if logs is already partitioned — if so, skip entire migration
     IF EXISTS (
         SELECT 1 FROM pg_partitioned_table pt
@@ -28,6 +46,9 @@ BEGIN
 
     -- 1. Rename existing table
     ALTER TABLE logs RENAME TO logs_old;
+
+    -- Drop indexes that would conflict with the new partitioned table
+    DROP INDEX IF EXISTS idx_logs_team_id_id;
 
     -- Rename the sequence if it exists so we can reuse the name
     IF EXISTS (SELECT 1 FROM pg_sequences WHERE sequencename = 'logs_id_seq') THEN
