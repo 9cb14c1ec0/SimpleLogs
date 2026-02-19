@@ -221,6 +221,9 @@
 <script setup lang="ts">
 import { onMounted, ref, reactive, computed } from 'vue'
 import api, { type Team, type ApiKey, type TeamMembership, type User } from '@/api/client'
+import { useTeamsStore } from '@/stores/teams'
+
+const teamsStore = useTeamsStore()
 
 const teams = ref<Team[]>([])
 const users = ref<User[]>([])
@@ -366,8 +369,7 @@ async function openKeysDialog(team: Team) {
   newKeyForm.api_key = ''
   loadingKeys.value = true
   try {
-    const response = await api.get(`/admin/teams/${team.id}/api-keys`)
-    teamKeys.value = response.data
+    teamKeys.value = await teamsStore.getApiKeys(team.id)
   } catch (error) {
     console.error('Failed to fetch API keys:', error)
   } finally {
@@ -377,24 +379,21 @@ async function openKeysDialog(team: Team) {
 
 async function addKey() {
   if (!selectedTeam.value) return
+  if (addKeyMode.value === 'manual' && !newKeyForm.api_key.trim()) return
   addingKey.value = true
   try {
-    const body: Record<string, string> = {}
-    if (newKeyForm.label) body.label = newKeyForm.label
-    if (addKeyMode.value === 'manual' && newKeyForm.api_key) {
-      body.api_key = newKeyForm.api_key
-    }
-    const response = await api.post(`/admin/teams/${selectedTeam.value.id}/api-keys`, body)
+    const label = newKeyForm.label || undefined
+    const manualKey = addKeyMode.value === 'manual' ? newKeyForm.api_key : undefined
+    const created = await teamsStore.createApiKey(selectedTeam.value.id, label, manualKey)
 
-    // Show the secret key dialog for generated keys
-    if (addKeyMode.value === 'generate') {
-      newApiKey.value = response.data.api_key
+    // Show the secret key dialog whenever the backend returns a generated secret
+    if (created.api_key) {
+      newApiKey.value = created.api_key
       keyDialog.value = true
     }
 
     // Refresh keys list
-    const keysResponse = await api.get(`/admin/teams/${selectedTeam.value.id}/api-keys`)
-    teamKeys.value = keysResponse.data
+    teamKeys.value = await teamsStore.getApiKeys(selectedTeam.value.id)
     newKeyForm.label = ''
     newKeyForm.api_key = ''
     await fetchTeams()
@@ -408,7 +407,7 @@ async function addKey() {
 async function revokeKey(key: ApiKey) {
   if (!selectedTeam.value) return
   try {
-    await api.delete(`/admin/teams/${selectedTeam.value.id}/api-keys/${key.id}`)
+    await teamsStore.deleteApiKey(selectedTeam.value.id, key.id)
     teamKeys.value = teamKeys.value.filter(k => k.id !== key.id)
     await fetchTeams()
   } catch (error) {
