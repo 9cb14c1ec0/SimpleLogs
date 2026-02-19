@@ -21,6 +21,11 @@ const router = createRouter({
       component: () => import('@/views/LogsView.vue'),
     },
     {
+      path: '/teams/:teamId/analytics',
+      name: 'analytics',
+      component: () => import('@/views/AnalyticsView.vue'),
+    },
+    {
       path: '/admin/users',
       name: 'admin-users',
       component: () => import('@/views/admin/Users.vue'),

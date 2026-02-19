@@ -6,6 +6,7 @@ from app.schemas.team import (
     MembershipCreate, MembershipResponse,
 )
 from app.schemas.log import LogCreate, LogBatchCreate, LogResponse, LogSearchParams, UserIdBackfillRequest, UserIdBackfillResponse
+from app.schemas.analytics import VolumeResponse, VolumeBucket, TopResponse, TopItem, HeatmapResponse, HeatmapCell
 
 __all__ = [
     "Token", "TokenPayload", "LoginRequest", "RefreshRequest",
@@ -15,4 +16,5 @@ __all__ = [
     "MembershipCreate", "MembershipResponse",
     "LogCreate", "LogBatchCreate", "LogResponse", "LogSearchParams",
     "UserIdBackfillRequest", "UserIdBackfillResponse",
+    "VolumeResponse", "VolumeBucket", "TopResponse", "TopItem", "HeatmapResponse", "HeatmapCell",
 ]
