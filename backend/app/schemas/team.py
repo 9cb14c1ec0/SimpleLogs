@@ -14,10 +14,31 @@ class TeamUpdate(BaseModel):
     retention_days: int | None = None
 
 
+class ApiKeyResponse(BaseModel):
+    id: UUID
+    team_id: UUID
+    label: str
+    api_key_prefix: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ApiKeyWithSecret(ApiKeyResponse):
+    """Response when creating an API key - includes the full key (shown only once)."""
+    api_key: str
+
+
+class ApiKeyCreate(BaseModel):
+    label: str = ""
+    api_key: str | None = None
+
+
 class TeamResponse(BaseModel):
     id: UUID
     name: str
-    api_key_prefix: str
+    api_keys: list[ApiKeyResponse]
     retention_days: int | None
     created_at: datetime
     updated_at: datetime
@@ -26,8 +47,14 @@ class TeamResponse(BaseModel):
         from_attributes = True
 
 
-class TeamWithKey(TeamResponse):
-    """Response when creating a team - includes the full API key (shown only once)."""
+class TeamCreateResponse(BaseModel):
+    """Response when creating a team - includes the first API key with secret."""
+    id: UUID
+    name: str
+    api_keys: list[ApiKeyResponse]
+    retention_days: int | None
+    created_at: datetime
+    updated_at: datetime
     api_key: str
 
 

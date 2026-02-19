@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import api, { type Team, type TeamMembership } from '@/api/client'
+import api, { type Team, type TeamMembership, type ApiKey, type ApiKeyWithSecret } from '@/api/client'
 
 export const useTeamsStore = defineStore('teams', () => {
   const teams = ref<Team[]>([])
@@ -42,9 +42,21 @@ export const useTeamsStore = defineStore('teams', () => {
     teams.value = teams.value.filter(t => t.id !== id)
   }
 
-  async function regenerateApiKey(id: string) {
-    const response = await api.post(`/admin/teams/${id}/regenerate-key`)
+  async function getApiKeys(teamId: string): Promise<ApiKey[]> {
+    const response = await api.get(`/admin/teams/${teamId}/api-keys`)
     return response.data
+  }
+
+  async function createApiKey(teamId: string, label?: string, apiKey?: string): Promise<ApiKeyWithSecret> {
+    const body: Record<string, string> = {}
+    if (label) body.label = label
+    if (apiKey) body.api_key = apiKey
+    const response = await api.post(`/admin/teams/${teamId}/api-keys`, body)
+    return response.data
+  }
+
+  async function deleteApiKey(teamId: string, keyId: string) {
+    await api.delete(`/admin/teams/${teamId}/api-keys/${keyId}`)
   }
 
   async function getMembers(teamId: string): Promise<TeamMembership[]> {
@@ -76,7 +88,9 @@ export const useTeamsStore = defineStore('teams', () => {
     createTeam,
     updateTeam,
     deleteTeam,
-    regenerateApiKey,
+    getApiKeys,
+    createApiKey,
+    deleteApiKey,
     getMembers,
     addMember,
     removeMember,
