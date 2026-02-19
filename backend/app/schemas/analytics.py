@@ -32,3 +32,14 @@ class HeatmapResponse(BaseModel):
     sources: list[str]
     levels: list[str]
     data: list[HeatmapCell]
+
+
+class TopUsersVolumeBucket(BaseModel):
+    bucket: str
+    user_id: str
+    count: int
+
+
+class TopUsersVolumeResponse(BaseModel):
+    users: list[str]
+    buckets: list[TopUsersVolumeBucket]

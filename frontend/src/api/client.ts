@@ -139,3 +139,14 @@ export interface HeatmapResponse {
   levels: string[]
   data: HeatmapCell[]
 }
+
+export interface TopUsersVolumeBucket {
+  bucket: string
+  user_id: string
+  count: number
+}
+
+export interface TopUsersVolumeResponse {
+  users: string[]
+  buckets: TopUsersVolumeBucket[]
+}
