@@ -7,6 +7,7 @@ from app.schemas import (
     MembershipCreate, MembershipResponse,
 )
 from app.api.deps import AdminUser
+from app.services.partitions import create_team_partition, drop_team_partition
 
 router = APIRouter()
 
@@ -116,6 +117,8 @@ async def create_team(admin: AdminUser, data: TeamCreate):
         retention_days=data.retention_days,
     )
 
+    await create_team_partition(team.id)
+
     return TeamWithKey(
         id=team.id,
         name=team.name,
@@ -163,6 +166,7 @@ async def delete_team(admin: AdminUser, team_id: UUID):
     if team is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
 
+    await drop_team_partition(team.id)
     await team.delete()
     return {"message": "Team deleted"}
 
