@@ -3,6 +3,7 @@ import type {
   VolumeResponse,
   TopResponse,
   HeatmapResponse,
+  TopUsersVolumeResponse,
 } from '@/api/client'
 
 const LEVEL_COLORS: Record<string, string> = {
@@ -23,11 +24,17 @@ function formatBucket(iso: string): string {
   return `${month}/${day} ${hour}:00`
 }
 
+const USER_COLORS = [
+  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de',
+  '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc', '#48b8d0',
+]
+
 export function useChartOptions(
   volume: Ref<VolumeResponse | null>,
   topSources: Ref<TopResponse | null>,
   topErrors: Ref<TopResponse | null>,
   topUsers: Ref<TopResponse | null>,
+  topUsersVolume: Ref<TopUsersVolumeResponse | null>,
   heatmap: Ref<HeatmapResponse | null>,
 ) {
 
@@ -182,7 +189,38 @@ export function useChartOptions(
     }
   })
 
-  // Chart 7: Source x Level heatmap
+  // Chart 7: Top users volume over time (multi-series line)
+  const topUsersVolumeOption = computed(() => {
+    const data = topUsersVolume.value
+    if (!data || data.buckets.length === 0) return null
+
+    const bucketSet = [...new Set(data.buckets.map(b => b.bucket))].sort()
+    const xLabels = bucketSet.map(formatBucket)
+
+    const series = data.users.map((userId, idx) => {
+      const counts = bucketSet.map(bucket => {
+        const entry = data.buckets.find(b => b.bucket === bucket && b.user_id === userId)
+        return entry?.count ?? 0
+      })
+      return {
+        name: userId,
+        type: 'line' as const,
+        data: counts,
+        itemStyle: { color: USER_COLORS[idx % USER_COLORS.length] },
+      }
+    })
+
+    return {
+      tooltip: { trigger: 'axis' },
+      legend: { data: data.users, top: 0, type: 'scroll' },
+      grid: { left: 50, right: 20, bottom: 40, top: 40 },
+      xAxis: { type: 'category', data: xLabels },
+      yAxis: { type: 'value' },
+      series,
+    }
+  })
+
+  // Chart 8: Source x Level heatmap
   const heatmapOption = computed(() => {
     const data = heatmap.value
     if (!data || data.data.length === 0) return null
@@ -236,6 +274,7 @@ export function useChartOptions(
     topSourcesOption,
     topErrorsData,
     topUsersOption,
+    topUsersVolumeOption,
     heatmapOption,
   }
 }

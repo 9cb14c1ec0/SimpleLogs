@@ -3,6 +3,7 @@ import api, {
   type VolumeResponse,
   type TopResponse,
   type HeatmapResponse,
+  type TopUsersVolumeResponse,
 } from '@/api/client'
 
 export interface TimeRange {
@@ -15,6 +16,7 @@ export function useAnalytics(teamId: string) {
   const topSources = ref<TopResponse | null>(null) as Ref<TopResponse | null>
   const topErrors = ref<TopResponse | null>(null) as Ref<TopResponse | null>
   const topUsers = ref<TopResponse | null>(null) as Ref<TopResponse | null>
+  const topUsersVolume = ref<TopUsersVolumeResponse | null>(null) as Ref<TopUsersVolumeResponse | null>
   const heatmap = ref<HeatmapResponse | null>(null) as Ref<HeatmapResponse | null>
   const loading = ref(false)
 
@@ -26,7 +28,7 @@ export function useAnalytics(teamId: string) {
     loading.value = true
     try {
       const params = rangeParams(range)
-      const [volRes, srcRes, errRes, usrRes, hmRes] = await Promise.all([
+      const [volRes, srcRes, errRes, usrRes, tuvRes, hmRes] = await Promise.all([
         api.get(`/teams/${teamId}/analytics/volume`, {
           params: { ...params, bucket, split_by: 'level' },
         }),
@@ -39,6 +41,9 @@ export function useAnalytics(teamId: string) {
         api.get(`/teams/${teamId}/analytics/top`, {
           params: { ...params, field: 'user_id' },
         }),
+        api.get(`/teams/${teamId}/analytics/top-users-volume`, {
+          params: { ...params, bucket },
+        }),
         api.get(`/teams/${teamId}/analytics/heatmap`, {
           params,
         }),
@@ -47,6 +52,7 @@ export function useAnalytics(teamId: string) {
       topSources.value = srcRes.data
       topErrors.value = errRes.data
       topUsers.value = usrRes.data
+      topUsersVolume.value = tuvRes.data
       heatmap.value = hmRes.data
     } catch (e) {
       console.error('Failed to fetch analytics:', e)
@@ -60,6 +66,7 @@ export function useAnalytics(teamId: string) {
     topSources,
     topErrors,
     topUsers,
+    topUsersVolume,
     heatmap,
     loading,
     fetchAll,

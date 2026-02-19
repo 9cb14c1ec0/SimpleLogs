@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Query
 from tortoise import connections
 from app.models import LogLevel
-from app.schemas import VolumeResponse, VolumeBucket, TopResponse, TopItem, HeatmapResponse, HeatmapCell
+from app.schemas import VolumeResponse, VolumeBucket, TopResponse, TopItem, HeatmapResponse, HeatmapCell, TopUsersVolumeResponse, TopUsersVolumeBucket
 from app.api.deps import get_team_member, CurrentUser
 
 router = APIRouter()
@@ -135,6 +135,62 @@ async def analytics_top(
     )
 
     return TopResponse(items=[TopItem(value=r["value"], count=r["count"]) for r in rows])
+
+
+@router.get("/{team_id}/analytics/top-users-volume", response_model=TopUsersVolumeResponse)
+async def analytics_top_users_volume(
+    team_id: UUID,
+    user: CurrentUser,
+    bucket: Literal["hour", "day", "week"] = "hour",
+    limit: int = Query(10, ge=1, le=50),
+    from_time: datetime | None = Query(None, alias="from"),
+    to_time: datetime | None = Query(None, alias="to"),
+):
+    team, _ = await get_team_member(team_id, user)
+    start, end = _default_range(from_time, to_time)
+    conn = connections.get("default")
+
+    trunc = BUCKET_SQL[bucket]
+
+    # Step 1: find top N user_ids by total count
+    top_rows = await conn.execute_query_dict(
+        """
+        SELECT user_id, count(*) AS count
+        FROM logs
+        WHERE team_id = $1 AND timestamp >= $2 AND timestamp <= $3
+          AND user_id IS NOT NULL
+        GROUP BY user_id
+        ORDER BY count DESC
+        LIMIT $4
+        """,
+        [str(team.id), start, end, limit],
+    )
+
+    user_ids = [r["user_id"] for r in top_rows]
+
+    if not user_ids:
+        return TopUsersVolumeResponse(users=[], buckets=[])
+
+    # Step 2: bucket counts for only those user_ids
+    placeholders = ", ".join(f"${i}" for i in range(4, 4 + len(user_ids)))
+    rows = await conn.execute_query_dict(
+        f"""
+        SELECT {trunc} AS bucket, user_id, count(*) AS count
+        FROM logs
+        WHERE team_id = $1 AND timestamp >= $2 AND timestamp <= $3
+          AND user_id IN ({placeholders})
+        GROUP BY bucket, user_id
+        ORDER BY bucket, user_id
+        """,
+        [str(team.id), start, end, *user_ids],
+    )
+
+    buckets = [
+        TopUsersVolumeBucket(bucket=str(r["bucket"]), user_id=r["user_id"], count=r["count"])
+        for r in rows
+    ]
+
+    return TopUsersVolumeResponse(users=user_ids, buckets=buckets)
 
 
 @router.get("/{team_id}/analytics/heatmap", response_model=HeatmapResponse)
