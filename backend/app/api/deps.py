@@ -2,7 +2,7 @@ from typing import Annotated
 from uuid import UUID
 from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.models import User, Team, TeamMembership, TeamRole
+from app.models import User, Team, TeamMembership, TeamRole, ApiKey
 from app.services.auth import AuthService
 
 security = HTTPBearer()
@@ -47,7 +47,7 @@ async def get_team_from_api_key(
     x_api_key: Annotated[str, Header()]
 ) -> Team:
     """Validate API key and return the team."""
-    team = await Team.get_by_api_key(x_api_key)
+    team = await ApiKey.get_team_by_api_key(x_api_key)
     if team is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

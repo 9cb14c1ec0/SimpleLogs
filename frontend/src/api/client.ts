@@ -63,16 +63,28 @@ export interface User {
   updated_at: string
 }
 
+export interface ApiKey {
+  id: string
+  team_id: string
+  label: string
+  api_key_prefix: string
+  created_at: string
+}
+
+export interface ApiKeyWithSecret extends ApiKey {
+  api_key: string
+}
+
 export interface Team {
   id: string
   name: string
-  api_key_prefix: string
+  api_keys: ApiKey[]
   retention_days: number | null
   created_at: string
   updated_at: string
 }
 
-export interface TeamWithKey extends Team {
+export interface TeamCreateResponse extends Team {
   api_key: string
 }
 

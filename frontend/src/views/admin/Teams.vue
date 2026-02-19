@@ -15,8 +15,13 @@
         :items="teams"
         :loading="loading"
       >
-        <template #item.api_key_prefix="{ item }">
-          <code>{{ item.api_key_prefix }}...</code>
+        <template #item.api_keys="{ item }">
+          <span v-if="item.api_keys.length === 0" class="text-grey">No keys</span>
+          <span v-else>
+            <code v-for="(key, i) in item.api_keys" :key="key.id">
+              {{ key.api_key_prefix }}...{{ i < item.api_keys.length - 1 ? ', ' : '' }}
+            </code>
+          </span>
         </template>
         <template #item.retention_days="{ item }">
           {{ item.retention_days ? `${item.retention_days} days` : 'Forever' }}
@@ -28,8 +33,8 @@
           <v-btn icon variant="text" size="small" @click="openMembersDialog(item)">
             <v-icon>mdi-account-group</v-icon>
           </v-btn>
-          <v-btn icon variant="text" size="small" @click="regenerateKey(item)">
-            <v-icon>mdi-key-change</v-icon>
+          <v-btn icon variant="text" size="small" @click="openKeysDialog(item)">
+            <v-icon>mdi-key-variant</v-icon>
           </v-btn>
           <v-btn icon variant="text" size="small" @click="openEditDialog(item)">
             <v-icon>mdi-pencil</v-icon>
@@ -63,7 +68,7 @@
       </v-card>
     </v-dialog>
 
-    <!-- API Key Dialog -->
+    <!-- API Key Secret Dialog (shown once after creation) -->
     <v-dialog v-model="keyDialog" max-width="600">
       <v-card>
         <v-card-title>API Key</v-card-title>
@@ -82,6 +87,59 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="keyDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- API Keys Management Dialog -->
+    <v-dialog v-model="keysDialog" max-width="700">
+      <v-card>
+        <v-card-title>
+          {{ selectedTeam?.name }} — API Keys
+        </v-card-title>
+        <v-card-text>
+          <v-data-table
+            :headers="keyHeaders"
+            :items="teamKeys"
+            :loading="loadingKeys"
+          >
+            <template #item.api_key_prefix="{ item }">
+              <code>{{ item.api_key_prefix }}...</code>
+            </template>
+            <template #item.created_at="{ item }">
+              {{ formatDate(item.created_at) }}
+            </template>
+            <template #item.actions="{ item }">
+              <v-btn icon variant="text" size="small" color="error" @click="revokeKey(item)">
+                <v-icon>mdi-delete</v-icon>
+              </v-btn>
+            </template>
+          </v-data-table>
+
+          <v-divider class="my-4" />
+
+          <h3 class="text-subtitle-1 mb-2">Add Key</h3>
+          <v-btn-toggle v-model="addKeyMode" mandatory class="mb-3">
+            <v-btn value="generate">Generate</v-btn>
+            <v-btn value="manual">Provide manually</v-btn>
+          </v-btn-toggle>
+          <v-row>
+            <v-col cols="4">
+              <v-text-field v-model="newKeyForm.label" label="Label (optional)" />
+            </v-col>
+            <v-col v-if="addKeyMode === 'manual'" cols="5">
+              <v-text-field v-model="newKeyForm.api_key" label="API Key" />
+            </v-col>
+            <v-col :cols="addKeyMode === 'manual' ? 3 : 8" class="d-flex align-center">
+              <v-btn color="primary" :loading="addingKey" @click="addKey">
+                Add
+              </v-btn>
+            </v-col>
+          </v-row>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="keysDialog = false">Close</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -162,18 +220,25 @@
 
 <script setup lang="ts">
 import { onMounted, ref, reactive, computed } from 'vue'
-import api, { type Team, type TeamMembership, type User } from '@/api/client'
+import api, { type Team, type ApiKey, type TeamMembership, type User } from '@/api/client'
+import { useTeamsStore } from '@/stores/teams'
+
+const teamsStore = useTeamsStore()
 
 const teams = ref<Team[]>([])
 const users = ref<User[]>([])
 const members = ref<TeamMembership[]>([])
+const teamKeys = ref<ApiKey[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
 const loadingMembers = ref(false)
+const loadingKeys = ref(false)
+const addingKey = ref(false)
 
 const dialog = ref(false)
 const keyDialog = ref(false)
+const keysDialog = ref(false)
 const membersDialog = ref(false)
 const deleteDialog = ref(false)
 
@@ -181,10 +246,16 @@ const editingTeam = ref<Team | null>(null)
 const selectedTeam = ref<Team | null>(null)
 const teamToDelete = ref<Team | null>(null)
 const newApiKey = ref('')
+const addKeyMode = ref<'generate' | 'manual'>('generate')
 
 const form = reactive({
   name: '',
   retention_days: null as number | null,
+})
+
+const newKeyForm = reactive({
+  label: '',
+  api_key: '',
 })
 
 const newMember = reactive({
@@ -194,8 +265,15 @@ const newMember = reactive({
 
 const headers = [
   { title: 'Name', key: 'name' },
-  { title: 'API Key', key: 'api_key_prefix' },
+  { title: 'API Keys', key: 'api_keys', sortable: false },
   { title: 'Retention', key: 'retention_days' },
+  { title: 'Created', key: 'created_at' },
+  { title: 'Actions', key: 'actions', sortable: false },
+]
+
+const keyHeaders = [
+  { title: 'Label', key: 'label' },
+  { title: 'Prefix', key: 'api_key_prefix' },
   { title: 'Created', key: 'created_at' },
   { title: 'Actions', key: 'actions', sortable: false },
 ]
@@ -277,20 +355,67 @@ async function saveTeam() {
   }
 }
 
-async function regenerateKey(team: Team) {
-  try {
-    const response = await api.post(`/admin/teams/${team.id}/regenerate-key`)
-    newApiKey.value = response.data.api_key
-    keyDialog.value = true
-    await fetchTeams()
-  } catch (error) {
-    console.error('Failed to regenerate key:', error)
-  }
-}
-
 function copyKey() {
   navigator.clipboard.writeText(newApiKey.value)
 }
+
+// ============== API Keys ==============
+
+async function openKeysDialog(team: Team) {
+  selectedTeam.value = team
+  keysDialog.value = true
+  addKeyMode.value = 'generate'
+  newKeyForm.label = ''
+  newKeyForm.api_key = ''
+  loadingKeys.value = true
+  try {
+    teamKeys.value = await teamsStore.getApiKeys(team.id)
+  } catch (error) {
+    console.error('Failed to fetch API keys:', error)
+  } finally {
+    loadingKeys.value = false
+  }
+}
+
+async function addKey() {
+  if (!selectedTeam.value) return
+  if (addKeyMode.value === 'manual' && !newKeyForm.api_key.trim()) return
+  addingKey.value = true
+  try {
+    const label = newKeyForm.label || undefined
+    const manualKey = addKeyMode.value === 'manual' ? newKeyForm.api_key : undefined
+    const created = await teamsStore.createApiKey(selectedTeam.value.id, label, manualKey)
+
+    // Show the secret key dialog whenever the backend returns a generated secret
+    if (created.api_key) {
+      newApiKey.value = created.api_key
+      keyDialog.value = true
+    }
+
+    // Refresh keys list
+    teamKeys.value = await teamsStore.getApiKeys(selectedTeam.value.id)
+    newKeyForm.label = ''
+    newKeyForm.api_key = ''
+    await fetchTeams()
+  } catch (error) {
+    console.error('Failed to add API key:', error)
+  } finally {
+    addingKey.value = false
+  }
+}
+
+async function revokeKey(key: ApiKey) {
+  if (!selectedTeam.value) return
+  try {
+    await teamsStore.deleteApiKey(selectedTeam.value.id, key.id)
+    teamKeys.value = teamKeys.value.filter(k => k.id !== key.id)
+    await fetchTeams()
+  } catch (error) {
+    console.error('Failed to revoke API key:', error)
+  }
+}
+
+// ============== Members ==============
 
 async function openMembersDialog(team: Team) {
   selectedTeam.value = team
@@ -330,6 +455,8 @@ async function removeMember(member: TeamMembership) {
     console.error('Failed to remove member:', error)
   }
 }
+
+// ============== Delete ==============
 
 function confirmDelete(team: Team) {
   teamToDelete.value = team

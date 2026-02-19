@@ -11,7 +11,7 @@
         <v-card @click="viewLogs(team)" class="cursor-pointer" hover>
           <v-card-title>{{ team.name }}</v-card-title>
           <v-card-subtitle>
-            API Key: {{ team.api_key_prefix }}...
+            {{ team.api_keys.length }} API key{{ team.api_keys.length !== 1 ? 's' : '' }}
           </v-card-subtitle>
           <v-card-text>
             <div v-if="team.retention_days">
