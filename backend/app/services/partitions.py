@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -6,25 +7,39 @@ from tortoise.backends.base.client import BaseDBAsyncClient
 
 from app.models import Team
 
+_HEX_RE = re.compile(r"[a-f0-9]{32}\Z")
+_IDENT_RE = re.compile(r"^logs_[a-f0-9]{32}(?:_(?:\d{4}_\d{2}|default))?$")
+ALLOWED_PARTITION_RE = re.compile(r"^logs_[0-9a-f]+_\d{4}_\d{2}$")
+
 
 def _team_hex(team_id: UUID) -> str:
-    """Return the hex representation of a team UUID (no dashes) for use in partition names."""
-    return team_id.hex
+    """Return the validated hex representation of a team UUID (no dashes)."""
+    hex_str = team_id.hex
+    if not _HEX_RE.fullmatch(hex_str):
+        raise ValueError(f"Invalid UUID hex: {hex_str!r}")
+    return hex_str
+
+
+def _safe_ident(name: str) -> str:
+    """Validate that a partition identifier matches the expected naming pattern."""
+    if not _IDENT_RE.match(name):
+        raise ValueError(f"Invalid partition identifier: {name!r}")
+    return name
 
 
 def _partition_name(team_id: UUID) -> str:
     """Top-level team partition name: logs_<hex>."""
-    return f"logs_{_team_hex(team_id)}"
+    return _safe_ident(f"logs_{_team_hex(team_id)}")
 
 
 def _monthly_partition_name(team_id: UUID, year: int, month: int) -> str:
     """Monthly sub-partition name: logs_<hex>_YYYY_MM."""
-    return f"logs_{_team_hex(team_id)}_{year:04d}_{month:02d}"
+    return _safe_ident(f"logs_{_team_hex(team_id)}_{year:04d}_{month:02d}")
 
 
 def _default_subpartition_name(team_id: UUID) -> str:
     """Default sub-partition for a team: logs_<hex>_default."""
-    return f"logs_{_team_hex(team_id)}_default"
+    return _safe_ident(f"logs_{_team_hex(team_id)}_default")
 
 
 async def _get_conn() -> BaseDBAsyncClient:
@@ -47,11 +62,14 @@ async def create_team_partition(team_id: UUID) -> None:
     if await _table_exists(conn, part_name):
         return
 
+    # Validate hex before using in DDL; _partition_name already called _team_hex
+    # but we also need the canonical UUID string for the LIST value.
+    _team_hex(team_id)  # raises on invalid hex
     team_id_str = str(team_id)
 
     # Create team partition (sub-partitioned by range on created_at)
     await conn.execute_script(
-        f"CREATE TABLE {part_name} PARTITION OF logs "
+        f"CREATE TABLE {part_name} PARTITION OF logs "  # noqa: S608
         f"FOR VALUES IN ('{team_id_str}') "
         f"PARTITION BY RANGE (created_at);"
     )
@@ -170,6 +188,10 @@ async def cleanup_expired_partitions() -> None:
         for row in rows:
             relname = row["relname"]
 
+            # Defensive guard: only operate on names matching expected pattern
+            if not ALLOWED_PARTITION_RE.match(relname):
+                continue
+
             # Parse partition name: logs_<hex>_YYYY_MM
             parts = relname.rsplit("_", 2)
             if len(parts) < 3:
@@ -190,13 +212,13 @@ async def cleanup_expired_partitions() -> None:
 
             if partition_end <= cutoff:
                 # Entire partition is expired — drop it (instant)
-                await conn.execute_script(f"DROP TABLE {relname};")
+                await conn.execute_script(f"DROP TABLE {relname};")  # noqa: S608
                 print(f"Dropped expired partition {relname}")
             elif partition_start < cutoff < partition_end:
                 # Partial month — delete rows before cutoff
                 cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S+00")
                 result = await conn.execute_query(
-                    f"DELETE FROM {relname} WHERE created_at < $1",
+                    f"DELETE FROM {relname} WHERE created_at < $1",  # noqa: S608
                     [cutoff_str],
                 )
                 deleted = result[0]
