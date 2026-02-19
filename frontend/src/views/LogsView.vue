@@ -39,11 +39,20 @@
           </v-col>
           <v-col cols="12" md="2">
             <v-text-field
+              v-model="search.userId"
+              label="User ID"
+              clearable
+            />
+          </v-col>
+          <v-col cols="12" md="2">
+            <v-text-field
               v-model="search.from"
               label="From"
               type="datetime-local"
             />
           </v-col>
+        </v-row>
+        <v-row>
           <v-col cols="12" md="2">
             <v-text-field
               v-model="search.to"
@@ -51,9 +60,7 @@
               type="datetime-local"
             />
           </v-col>
-        </v-row>
-        <v-row>
-          <v-col cols="12" md="6">
+          <v-col cols="12" md="4">
             <v-text-field
               v-model="search.metadataFilter"
               label="Metadata filter (e.g., user_id=123)"
@@ -75,6 +82,14 @@
 
     <!-- Column Settings & Copy Button -->
     <div class="d-flex justify-end mb-2 gap-2">
+      <v-btn
+        variant="outlined"
+        size="small"
+        prepend-icon="mdi-database-sync"
+        @click="backfillDialog = true"
+      >
+        Backfill User ID
+      </v-btn>
       <v-btn
         variant="outlined"
         size="small"
@@ -186,6 +201,9 @@
             {{ getMetadataValue(item, key) }}
           </div>
         </template>
+        <template #item.user_id="{ item }">
+          <span>{{ item.user_id || '-' }}</span>
+        </template>
         <template #item.metadata="{ item }">
           <v-chip v-if="item.metadata" size="small" @click="showMetadata(item)">
             View
@@ -205,6 +223,45 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="metadataDialog = false">Close</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Backfill Dialog -->
+    <v-dialog v-model="backfillDialog" max-width="500">
+      <v-card>
+        <v-card-title>Backfill User ID</v-card-title>
+        <v-card-text>
+          <p class="mb-4">
+            Copy a metadata key into the <code>user_id</code> column for all logs in this team.
+          </p>
+          <v-text-field
+            v-model="backfillKey"
+            label="Metadata key"
+            hint="e.g. user_id, userId, user"
+            persistent-hint
+          />
+          <v-checkbox
+            v-model="backfillOverwrite"
+            label="Overwrite existing user_id values"
+            density="compact"
+            class="mt-2"
+          />
+          <v-alert v-if="backfillResult" :type="backfillError ? 'error' : 'success'" class="mt-2">
+            {{ backfillResult }}
+          </v-alert>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="backfillDialog = false">Close</v-btn>
+          <v-btn
+            color="primary"
+            :loading="backfillLoading"
+            :disabled="!backfillKey"
+            @click="runBackfill"
+          >
+            Run Backfill
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -241,7 +298,7 @@ const availableMetadataKeys = ref<string[]>([])
 const selectedMetadataColumns = ref<string[]>([])
 
 // Standard columns that can be toggled
-const standardColumnKeys = ['timestamp', 'level', 'source', 'message'] as const
+const standardColumnKeys = ['timestamp', 'level', 'source', 'user_id', 'message'] as const
 const visibleStandardColumns = ref<string[]>([...standardColumnKeys])
 
 // LocalStorage key for persisting column preferences
@@ -352,6 +409,7 @@ const search = reactive({
   q: '',
   levels: [] as string[],
   source: '',
+  userId: '',
   from: '',
   to: '',
   metadataFilter: '',
@@ -363,6 +421,7 @@ const allStandardHeaders: Record<string, { title: string; key: string; width?: s
   timestamp: { title: 'Timestamp', key: 'timestamp', width: '180px' },
   level: { title: 'Level', key: 'level', width: '100px' },
   source: { title: 'Source', key: 'source', width: '120px' },
+  user_id: { title: 'User ID', key: 'user_id', width: '150px' },
   message: { title: 'Message', key: 'message' },
 }
 
@@ -405,6 +464,7 @@ async function fetchLogs() {
 
     if (search.q) params.append('q', search.q)
     if (search.source) params.append('source', search.source)
+    if (search.userId) params.append('user_id', search.userId)
     if (search.from) params.append('from', new Date(search.from).toISOString())
     if (search.to) params.append('to', new Date(search.to).toISOString())
     search.levels.forEach(level => params.append('level', level))
@@ -443,6 +503,7 @@ function resetFilters() {
   search.q = ''
   search.levels = []
   search.source = ''
+  search.userId = ''
   search.from = ''
   search.to = ''
   search.metadataFilter = ''
@@ -486,6 +547,8 @@ async function copyTableToClipboard() {
         return log.level.toUpperCase()
       } else if (key === 'source') {
         return log.source || ''
+      } else if (key === 'user_id') {
+        return log.user_id || ''
       } else if (key === 'message') {
         return log.message
       } else if (key.startsWith('metadata.')) {
@@ -507,6 +570,33 @@ async function copyTableToClipboard() {
 }
 
 const copiedSnackbar = ref(false)
+
+// Backfill state
+const backfillDialog = ref(false)
+const backfillKey = ref('')
+const backfillOverwrite = ref(false)
+const backfillLoading = ref(false)
+const backfillResult = ref('')
+const backfillError = ref(false)
+
+async function runBackfill() {
+  backfillLoading.value = true
+  backfillResult.value = ''
+  backfillError.value = false
+  try {
+    const response = await api.post(`/teams/${teamId}/logs/backfill-user-id`, {
+      metadata_key: backfillKey.value,
+      overwrite: backfillOverwrite.value,
+    })
+    backfillResult.value = response.data.message
+    fetchLogs()
+  } catch (err: any) {
+    backfillError.value = true
+    backfillResult.value = err.response?.data?.detail || 'Backfill failed'
+  } finally {
+    backfillLoading.value = false
+  }
+}
 </script>
 
 <style scoped>

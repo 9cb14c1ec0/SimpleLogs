@@ -19,6 +19,7 @@ class Log(Model):
     message = fields.TextField()
     metadata = fields.JSONField(null=True)  # JSONB in PostgreSQL
     source = fields.CharField(max_length=255, null=True, index=True)
+    user_id = fields.CharField(max_length=255, null=True)
     created_at = fields.DatetimeField(auto_now_add=True, index=True)
 
     class Meta:

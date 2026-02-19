@@ -94,6 +94,7 @@ export interface Log {
   message: string
   metadata: Record<string, unknown> | null
   source: string | null
+  user_id: string | null
   created_at: string
 }
 
