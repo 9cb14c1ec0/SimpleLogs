@@ -9,6 +9,7 @@ from app.db import init_db, close_db
 from app.api import api_router
 from app.models import User
 from app.services.retention import RetentionService
+from app.services.partitions import ensure_upcoming_partitions
 from app.migrations import run_migrations
 
 settings = get_settings()
@@ -35,12 +36,20 @@ async def lifespan(app: FastAPI):
     await init_db()
     await run_migrations()
     await create_admin_user()
+    await ensure_upcoming_partitions()
 
     # Start retention cleanup scheduler (runs every hour)
     scheduler.add_job(
         RetentionService.cleanup_expired_logs,
         trigger=IntervalTrigger(hours=1),
         id="retention_cleanup",
+        replace_existing=True,
+    )
+    # Ensure next month's partitions exist (runs daily)
+    scheduler.add_job(
+        ensure_upcoming_partitions,
+        trigger=IntervalTrigger(hours=24),
+        id="partition_maintenance",
         replace_existing=True,
     )
     scheduler.start()
