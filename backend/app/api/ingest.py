@@ -27,6 +27,7 @@ async def ingest_log(log: LogCreate, team: TeamFromApiKey):
         message=log.message,
         metadata=log.metadata,
         source=log.source,
+        user_id=log.user_id,
     )
 
     return {"status": "ok"}
@@ -55,6 +56,7 @@ async def ingest_logs_batch(batch: LogBatchCreate, team: TeamFromApiKey):
             message=log.message,
             metadata=log.metadata,
             source=log.source,
+            user_id=log.user_id,
         )
         for log in batch.logs
     ]

@@ -10,6 +10,7 @@ class LogCreate(BaseModel):
     message: str
     metadata: dict[str, Any] | None = None
     source: str | None = None
+    user_id: str | None = None
     timestamp: datetime | None = None  # If not provided, server time is used
 
 
@@ -25,6 +26,7 @@ class LogResponse(BaseModel):
     message: str
     metadata: dict[str, Any] | None
     source: str | None
+    user_id: str | None
     created_at: datetime
 
     class Config:
@@ -35,8 +37,19 @@ class LogSearchParams(BaseModel):
     q: str | None = None  # Full-text search query
     level: list[LogLevel] | None = None
     source: str | None = None
+    user_id: str | None = None
     from_time: datetime | None = None
     to_time: datetime | None = None
     page: int = Field(default=1, ge=1)
     limit: int = Field(default=50, ge=1, le=1000)
     # Metadata filters will be parsed from query params like metadata.field=value
+
+
+class UserIdBackfillRequest(BaseModel):
+    metadata_key: str = Field(..., min_length=1, max_length=255)
+    overwrite: bool = False
+
+
+class UserIdBackfillResponse(BaseModel):
+    updated: int
+    message: str

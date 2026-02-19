@@ -2,8 +2,9 @@ from uuid import UUID
 from typing import Annotated
 from datetime import datetime
 from fastapi import APIRouter, Query, Depends, HTTPException, status, Request
-from app.models import Log, LogLevel
-from app.schemas import LogResponse
+from tortoise import connections
+from app.models import Log, LogLevel, TeamRole
+from app.schemas import LogResponse, UserIdBackfillRequest, UserIdBackfillResponse
 from app.api.deps import get_team_member, CurrentUser
 
 router = APIRouter()
@@ -17,6 +18,7 @@ async def search_logs(
     q: str | None = None,
     level: Annotated[list[LogLevel] | None, Query()] = None,
     source: str | None = None,
+    user_id: str | None = None,
     from_time: datetime | None = Query(None, alias="from"),
     to_time: datetime | None = Query(None, alias="to"),
     page: int = Query(1, ge=1),
@@ -28,6 +30,7 @@ async def search_logs(
     - **q**: Full-text search on message
     - **level**: Filter by log levels (can specify multiple)
     - **source**: Filter by source
+    - **user_id**: Filter by user ID
     - **from/to**: Date range filter
     - **metadata.field=value**: Filter by JSON metadata fields
 
@@ -59,6 +62,10 @@ async def search_logs(
     # Source filter
     if source:
         query = query.filter(source=source)
+
+    # User ID filter
+    if user_id:
+        query = query.filter(user_id=user_id)
 
     # Date range
     if from_time:
@@ -109,6 +116,7 @@ async def delete_logs(
     request: Request,
     level: Annotated[list[LogLevel] | None, Query()] = None,
     source: str | None = None,
+    user_id: str | None = None,
     from_time: datetime | None = Query(None, alias="from"),
     to_time: datetime | None = Query(None, alias="to"),
 ):
@@ -119,7 +127,7 @@ async def delete_logs(
     team, membership = await get_team_member(team_id, user)
 
     # Require at least one filter
-    has_filter = any([level, source, from_time, to_time])
+    has_filter = any([level, source, user_id, from_time, to_time])
     metadata_filters = [k for k in request.query_params.keys() if k.startswith("metadata.")]
 
     if not has_filter and not metadata_filters:
@@ -134,6 +142,8 @@ async def delete_logs(
         query = query.filter(level__in=level)
     if source:
         query = query.filter(source=source)
+    if user_id:
+        query = query.filter(user_id=user_id)
     if from_time:
         query = query.filter(timestamp__gte=from_time)
     if to_time:
@@ -147,3 +157,43 @@ async def delete_logs(
     deleted = await query.delete()
 
     return {"deleted": deleted}
+
+
+@router.post("/{team_id}/logs/backfill-user-id", response_model=UserIdBackfillResponse)
+async def backfill_user_id(
+    team_id: UUID,
+    user: CurrentUser,
+    body: UserIdBackfillRequest,
+):
+    """
+    Backfill the user_id column from a metadata key.
+
+    - **metadata_key**: The key in the metadata JSONB to copy into user_id
+    - **overwrite**: If false (default), only updates rows where user_id IS NULL
+    """
+    team, membership = await get_team_member(team_id, user)
+
+    if membership.role not in (TeamRole.MEMBER, TeamRole.MANAGER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only members and managers can perform backfill operations",
+        )
+
+    conn = connections.get("default")
+
+    sql = """
+        UPDATE logs
+        SET user_id = metadata->>$1
+        WHERE team_id = $2
+          AND metadata ? $1
+    """
+    if not body.overwrite:
+        sql += " AND user_id IS NULL"
+
+    result = await conn.execute_query(sql, [body.metadata_key, str(team.id)])
+    updated = result[0]
+
+    return UserIdBackfillResponse(
+        updated=updated,
+        message=f"Updated {updated} rows from metadata key '{body.metadata_key}'",
+    )
