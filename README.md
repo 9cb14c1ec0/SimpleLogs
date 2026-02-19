@@ -9,7 +9,7 @@ A self-hosted logging storage and search application with a simple API for log i
 - **Simple Ingestion API** - Send logs with 2 lines of code from any language
 - **Full-text Search** - Search log messages with PostgreSQL full-text search
 - **JSON Metadata** - Attach structured data to logs and filter by any field
-- **Multi-team** - Isolate logs by team with separate API keys
+- **Multi-team** - Isolate logs by team with multiple API keys per team
 - **Retention Policies** - Auto-delete old logs per team
 - **Modern Stack** - FastAPI + Vue 3 + Vuetify + PostgreSQL
 - **Auto HTTPS** - Caddy handles SSL certificates automatically
@@ -52,7 +52,7 @@ ADMIN_PASSWORD=changeme
 
 ## Sending Logs
 
-Get your API key from the admin panel (Teams → Create Team), then:
+Get your API key from the admin panel (Teams → Create Team or Manage Keys), then:
 
 ### curl
 
@@ -120,6 +120,17 @@ curl -X POST http://localhost/api/v1/ingest/batch \
 | `metadata` | object | No | JSON object with any additional data |
 | `source` | string | No | Service/app name |
 | `timestamp` | string | No | ISO 8601 timestamp (default: server time) |
+
+## API Key Management
+
+Each team can have multiple API keys. Manage them from the admin panel:
+
+- **Teams → Key icon** to open the key management dialog
+- **Generate** a new key (auto-generated, shown once)
+- **Provide manually** a custom key string
+- **Revoke** individual keys without affecting others
+
+When a team is created, a default key is generated automatically.
 
 ## Searching Logs
 
