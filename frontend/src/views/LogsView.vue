@@ -5,6 +5,14 @@
         <v-icon>mdi-arrow-left</v-icon>
       </v-btn>
       <h1 class="text-h4 ml-2">{{ teamName }} Logs</h1>
+      <v-spacer />
+      <v-btn
+        variant="tonal"
+        prepend-icon="mdi-chart-bar"
+        :to="`/teams/${teamId}/analytics`"
+      >
+        Analytics
+      </v-btn>
     </div>
 
     <!-- Search Filters -->

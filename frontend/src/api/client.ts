@@ -105,3 +105,37 @@ export interface LogSearchResult {
   limit: number
   pages: number
 }
+
+// Analytics types
+export interface VolumeBucket {
+  bucket: string
+  level?: string | null
+  source?: string | null
+  count: number
+}
+
+export interface VolumeResponse {
+  buckets: VolumeBucket[]
+  totals: Record<string, number>
+}
+
+export interface TopItem {
+  value: string
+  count: number
+}
+
+export interface TopResponse {
+  items: TopItem[]
+}
+
+export interface HeatmapCell {
+  source: string
+  level: string
+  count: number
+}
+
+export interface HeatmapResponse {
+  sources: string[]
+  levels: string[]
+  data: HeatmapCell[]
+}

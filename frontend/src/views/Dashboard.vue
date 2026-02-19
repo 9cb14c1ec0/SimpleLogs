@@ -8,7 +8,7 @@
 
     <v-row>
       <v-col v-for="team in teams" :key="team.id" cols="12" sm="6" md="4">
-        <v-card @click="viewLogs(team)" class="cursor-pointer" hover>
+        <v-card hover>
           <v-card-title>{{ team.name }}</v-card-title>
           <v-card-subtitle>
             API Key: {{ team.api_key_prefix }}...
@@ -22,8 +22,11 @@
             </div>
           </v-card-text>
           <v-card-actions>
-            <v-btn color="primary" variant="text">
+            <v-btn color="primary" variant="text" @click="viewLogs(team)">
               View Logs
+            </v-btn>
+            <v-btn variant="text" @click="viewAnalytics(team)">
+              Analytics
             </v-btn>
           </v-card-actions>
         </v-card>
@@ -60,6 +63,10 @@ onMounted(async () => {
 
 function viewLogs(team: Team) {
   router.push(`/teams/${team.id}/logs`)
+}
+
+function viewAnalytics(team: Team) {
+  router.push(`/teams/${team.id}/analytics`)
 }
 </script>
 
