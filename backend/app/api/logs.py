@@ -3,7 +3,7 @@ from typing import Annotated
 from datetime import datetime
 from fastapi import APIRouter, Query, Depends, HTTPException, status, Request
 from tortoise import connections
-from app.models import Log, LogLevel
+from app.models import Log, LogLevel, TeamRole
 from app.schemas import LogResponse, UserIdBackfillRequest, UserIdBackfillResponse
 from app.api.deps import get_team_member, CurrentUser
 
@@ -172,6 +172,12 @@ async def backfill_user_id(
     - **overwrite**: If false (default), only updates rows where user_id IS NULL
     """
     team, membership = await get_team_member(team_id, user)
+
+    if membership.role not in (TeamRole.MEMBER, TeamRole.MANAGER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only members and managers can perform backfill operations",
+        )
 
     conn = connections.get("default")
 
