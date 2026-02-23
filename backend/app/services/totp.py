@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import io
 import secrets
@@ -89,11 +90,13 @@ class TOTPService:
         # Delete any existing recovery codes for this user
         await RecoveryCode.filter(user=user).delete()
 
-        for code in plain_codes:
-            await RecoveryCode.create(
-                user=user,
-                code_hash=cls.hash_recovery_code(code),
-            )
+        # Hash codes in parallel on worker threads to avoid blocking the event loop
+        hashes = await asyncio.gather(
+            *(asyncio.to_thread(cls.hash_recovery_code, code) for code in plain_codes)
+        )
+        await RecoveryCode.bulk_create([
+            RecoveryCode(user=user, code_hash=h) for h in hashes
+        ])
 
         return {
             "secret": secret,
