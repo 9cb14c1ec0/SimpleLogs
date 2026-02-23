@@ -133,11 +133,19 @@ class TOTPService:
         # Fallback to recovery codes
         normalized = code.strip().lower()
         recovery_codes = await RecoveryCode.filter(user=user, used=False).all()
-        for rc in recovery_codes:
-            if rc.verify_code(normalized):
-                rc.used = True
-                await rc.save()
-                return True
+
+        def _find_matching_code() -> int | None:
+            for i, rc in enumerate(recovery_codes):
+                if rc.verify_code(normalized):
+                    return i
+            return None
+
+        match_idx = await asyncio.to_thread(_find_matching_code)
+        if match_idx is not None:
+            rc = recovery_codes[match_idx]
+            rc.used = True
+            await rc.save()
+            return True
 
         return False
 
