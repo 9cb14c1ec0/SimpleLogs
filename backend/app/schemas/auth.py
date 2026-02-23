@@ -19,6 +19,7 @@ class Token(BaseModel):
 class TokenPayload(BaseModel):
     sub: str  # user id
     type: str  # "access", "refresh", or "totp_required"
+    jti: str | None = None  # unique token id (used for totp_required tokens)
 
 
 class LoginResponse(BaseModel):

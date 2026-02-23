@@ -1,3 +1,4 @@
+import time
 from fastapi import APIRouter, HTTPException, status
 from app.models import User
 from app.schemas import (
@@ -10,6 +11,37 @@ from app.services.totp import TOTPService
 from app.api.deps import CurrentUser
 
 router = APIRouter()
+
+# In-memory TOTP attempt tracker: {jti: (count, first_attempt_time)}
+_totp_attempts: dict[str, tuple[int, float]] = {}
+_TOTP_MAX_ATTEMPTS = 5
+_TOTP_WINDOW_SECONDS = 300  # 5 minutes, matches token TTL
+
+
+def _check_totp_attempts(jti: str) -> None:
+    """Raise 401 if this token has exceeded the attempt limit."""
+    now = time.monotonic()
+
+    # Evict stale entries opportunistically
+    stale = [k for k, (_, t) in _totp_attempts.items() if now - t > _TOTP_WINDOW_SECONDS]
+    for k in stale:
+        del _totp_attempts[k]
+
+    entry = _totp_attempts.get(jti)
+    if entry and entry[0] >= _TOTP_MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Too many TOTP attempts, please log in again",
+        )
+
+
+def _record_totp_failure(jti: str) -> None:
+    now = time.monotonic()
+    entry = _totp_attempts.get(jti)
+    if entry:
+        _totp_attempts[jti] = (entry[0] + 1, entry[1])
+    else:
+        _totp_attempts[jti] = (1, now)
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -43,11 +75,13 @@ async def verify_totp(request: TOTPVerifyLoginRequest):
     """Verify TOTP code and issue real JWT tokens."""
     payload = AuthService.decode_token(request.totp_token)
 
-    if payload is None or payload.type != "totp_required":
+    if payload is None or payload.type != "totp_required" or not payload.jti:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired TOTP token",
         )
+
+    _check_totp_attempts(payload.jti)
 
     user = await User.filter(id=payload.sub, is_active=True).first()
     if user is None:
@@ -57,10 +91,14 @@ async def verify_totp(request: TOTPVerifyLoginRequest):
         )
 
     if not await TOTPService.verify_login_code(user, request.code):
+        _record_totp_failure(payload.jti)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid TOTP code",
         )
+
+    # Success — clear the attempt counter
+    _totp_attempts.pop(payload.jti, None)
 
     access_token, refresh_token = AuthService.create_tokens(str(user.id))
     return Token(access_token=access_token, refresh_token=refresh_token)
