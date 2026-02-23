@@ -23,6 +23,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
       CORS_ORIGINS: '["https://${DOMAIN:-localhost}", "http://${DOMAIN:-localhost}", "http://localhost:5173"]'
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-}
     depends_on:
       db:
         condition: service_healthy

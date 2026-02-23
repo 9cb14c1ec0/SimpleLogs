@@ -10,11 +10,14 @@ class User(Model):
     name = fields.CharField(max_length=255)
     is_admin = fields.BooleanField(default=False)
     is_active = fields.BooleanField(default=True)
+    totp_secret_encrypted = fields.TextField(null=True, default=None)
+    totp_enabled = fields.BooleanField(default=False)
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
 
     # Reverse relations
     team_memberships: fields.ReverseRelation["TeamMembership"]
+    recovery_codes: fields.ReverseRelation["RecoveryCode"]
 
     class Meta:
         table = "users"

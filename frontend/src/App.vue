@@ -30,6 +30,9 @@
             <v-list-item-subtitle>{{ authStore.user?.email }}</v-list-item-subtitle>
           </v-list-item>
           <v-divider />
+          <v-list-item to="/settings">
+            <v-list-item-title>Settings</v-list-item-title>
+          </v-list-item>
           <v-list-item @click="logout">
             <v-list-item-title>Logout</v-list-item-title>
           </v-list-item>

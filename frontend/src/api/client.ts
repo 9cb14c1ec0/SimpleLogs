@@ -59,8 +59,23 @@ export interface User {
   name: string
   is_admin: boolean
   is_active: boolean
+  totp_enabled: boolean
   created_at: string
   updated_at: string
+}
+
+export interface LoginResponse {
+  totp_required: boolean
+  access_token: string | null
+  refresh_token: string | null
+  token_type: string
+  totp_token: string | null
+}
+
+export interface TOTPSetupResponse {
+  secret: string
+  qr_code: string
+  recovery_codes: string[]
 }
 
 export interface ApiKey {

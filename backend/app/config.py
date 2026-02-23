@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     admin_password: str = "changeme"
     admin_name: str = "Admin"
 
+    # TOTP
+    totp_encryption_key: str = ""
+
     # CORS
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 

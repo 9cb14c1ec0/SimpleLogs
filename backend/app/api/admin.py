@@ -9,6 +9,7 @@ from app.schemas import (
 )
 from app.api.deps import AdminUser
 from app.services.partitions import create_team_partition, drop_team_partition
+from app.services.totp import TOTPService
 
 router = APIRouter()
 
@@ -91,6 +92,20 @@ async def delete_user(admin: AdminUser, user_id: UUID):
 
     await user.delete()
     return {"message": "User deleted"}
+
+
+@router.post("/users/{user_id}/reset-totp")
+async def reset_user_totp(admin: AdminUser, user_id: UUID):
+    """Reset TOTP for a user (admin only)."""
+    user = await User.filter(id=user_id).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if not user.totp_enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="TOTP is not enabled for this user")
+
+    await TOTPService.disable(user)
+    return {"message": "TOTP reset successfully"}
 
 
 # ============== Teams ==============
