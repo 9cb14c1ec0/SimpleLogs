@@ -28,6 +28,16 @@ class AuthService:
         return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
     @staticmethod
+    def create_totp_token(user_id: str) -> str:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=5)
+        payload = {
+            "sub": user_id,
+            "type": "totp_required",
+            "exp": expire,
+        }
+        return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+    @staticmethod
     def decode_token(token: str) -> TokenPayload | None:
         try:
             payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])

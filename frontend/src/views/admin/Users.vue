@@ -25,12 +25,28 @@
             {{ item.is_active ? 'Active' : 'Inactive' }}
           </v-chip>
         </template>
+        <template #item.totp_enabled="{ item }">
+          <v-chip :color="item.totp_enabled ? 'success' : 'grey'" size="small">
+            {{ item.totp_enabled ? 'Enabled' : 'Disabled' }}
+          </v-chip>
+        </template>
         <template #item.created_at="{ item }">
           {{ formatDate(item.created_at) }}
         </template>
         <template #item.actions="{ item }">
           <v-btn icon variant="text" size="small" @click="openEditDialog(item)">
             <v-icon>mdi-pencil</v-icon>
+          </v-btn>
+          <v-btn
+            v-if="item.totp_enabled"
+            icon
+            variant="text"
+            size="small"
+            color="warning"
+            @click="confirmResetTotp(item)"
+          >
+            <v-icon>mdi-shield-off</v-icon>
+            <v-tooltip activator="parent">Reset 2FA</v-tooltip>
           </v-btn>
           <v-btn icon variant="text" size="small" color="error" @click="confirmDelete(item)">
             <v-icon>mdi-delete</v-icon>
@@ -78,6 +94,22 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Reset TOTP Confirmation -->
+    <v-dialog v-model="resetTotpDialog" max-width="400">
+      <v-card>
+        <v-card-title>Reset Two-Factor Authentication</v-card-title>
+        <v-card-text>
+          Are you sure you want to reset 2FA for <strong>{{ userToResetTotp?.name }}</strong>?
+          They will be able to log in without a TOTP code.
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="resetTotpDialog = false">Cancel</v-btn>
+          <v-btn color="warning" :loading="resettingTotp" @click="resetTotp">Reset 2FA</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -89,11 +121,14 @@ const users = ref<User[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
+const resettingTotp = ref(false)
 
 const dialog = ref(false)
 const deleteDialog = ref(false)
+const resetTotpDialog = ref(false)
 const editingUser = ref<User | null>(null)
 const userToDelete = ref<User | null>(null)
+const userToResetTotp = ref<User | null>(null)
 
 const form = reactive({
   name: '',
@@ -108,6 +143,7 @@ const headers = [
   { title: 'Email', key: 'email' },
   { title: 'Role', key: 'is_admin' },
   { title: 'Status', key: 'is_active' },
+  { title: '2FA', key: 'totp_enabled' },
   { title: 'Created', key: 'created_at' },
   { title: 'Actions', key: 'actions', sortable: false },
 ]
@@ -193,6 +229,25 @@ async function deleteUser() {
     console.error('Failed to delete user:', error)
   } finally {
     deleting.value = false
+  }
+}
+
+function confirmResetTotp(user: User) {
+  userToResetTotp.value = user
+  resetTotpDialog.value = true
+}
+
+async function resetTotp() {
+  if (!userToResetTotp.value) return
+  resettingTotp.value = true
+  try {
+    await api.post(`/admin/users/${userToResetTotp.value.id}/reset-totp`)
+    resetTotpDialog.value = false
+    await fetchUsers()
+  } catch (error) {
+    console.error('Failed to reset TOTP:', error)
+  } finally {
+    resettingTotp.value = false
   }
 }
 

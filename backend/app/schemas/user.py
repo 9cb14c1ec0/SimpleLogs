@@ -24,6 +24,7 @@ class UserResponse(BaseModel):
     name: str
     is_admin: bool
     is_active: bool
+    totp_enabled: bool = False
     created_at: datetime
     updated_at: datetime
 
