@@ -17,7 +17,19 @@ class TOTPService:
     @staticmethod
     def _get_fernet() -> Fernet:
         settings = get_settings()
-        return Fernet(settings.totp_encryption_key.encode())
+        key = settings.totp_encryption_key
+        if not key:
+            raise ValueError(
+                "TOTP_ENCRYPTION_KEY is not set. "
+                "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            )
+        try:
+            return Fernet(key.encode())
+        except Exception as exc:
+            raise ValueError(
+                f"TOTP_ENCRYPTION_KEY is not a valid Fernet key: {exc}. "
+                "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            ) from exc
 
     @classmethod
     def encrypt_secret(cls, secret: str) -> str:
