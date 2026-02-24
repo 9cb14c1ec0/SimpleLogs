@@ -36,6 +36,14 @@
             </v-card-text>
 
             <v-card-actions>
+              <v-btn
+                variant="outlined"
+                prepend-icon="mdi-fingerprint"
+                :disabled="loading"
+                @click="handlePasskeyLogin"
+              >
+                Sign in with passkey
+              </v-btn>
               <v-spacer />
               <v-btn
                 color="primary"
@@ -131,6 +139,21 @@ async function handleTotp() {
     router.push('/')
   } else {
     error.value = 'Invalid authentication code'
+  }
+
+  loading.value = false
+}
+
+async function handlePasskeyLogin() {
+  error.value = ''
+  loading.value = true
+
+  const result = await authStore.loginWithPasskey()
+
+  if (result === 'success') {
+    router.push('/')
+  } else if (result === 'error') {
+    error.value = 'Passkey authentication failed'
   }
 
   loading.value = false

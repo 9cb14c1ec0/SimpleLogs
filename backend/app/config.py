@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     # TOTP
     totp_encryption_key: str = ""
 
+    # WebAuthn
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "SimpleLogs"
+    webauthn_origin: str = "http://localhost:5173"
+
     # CORS
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
