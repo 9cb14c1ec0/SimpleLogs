@@ -21,6 +21,7 @@ A self-hosted logging storage and search application with a simple API for log i
 git clone <repo-url> simplelogs
 cd simplelogs
 cp .env.example .env
+cp docker-compose.example.yml docker-compose.yml
 
 # Start services
 docker-compose up -d
