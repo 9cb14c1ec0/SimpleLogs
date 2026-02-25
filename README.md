@@ -61,7 +61,7 @@ Get your API key from the admin panel (Teams → Create Team or Manage Keys), th
 curl -X POST http://localhost/api/v1/ingest \
   -H "X-API-Key: YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"level": "info", "message": "User logged in", "metadata": {"user_id": 123}}'
+  -d '{"level": "info", "message": "User logged in", "metadata": {"important_number": 123}}'
 ```
 
 ### Python
@@ -74,7 +74,8 @@ requests.post("http://localhost/api/v1/ingest",
     json={
         "level": "error",
         "message": "Payment failed",
-        "metadata": {"user_id": 123, "amount": 99.99}
+        "metadata": {"amount": 99.99},
+        "user_id": "123"
     })
 ```
 
@@ -90,7 +91,8 @@ fetch("http://localhost/api/v1/ingest", {
     body: JSON.stringify({
         level: "info",
         message: "Order created",
-        metadata: { orderId: 456 }
+        metadata: { orderId: 456 },
+        user_id: "1234"
     })
 });
 ```
@@ -121,6 +123,7 @@ curl -X POST http://localhost/api/v1/ingest/batch \
 | `metadata` | object | No | JSON object with any additional data |
 | `source` | string | No | Service/app name |
 | `timestamp` | string | No | ISO 8601 timestamp (default: server time) |
+| `user_id` | string | No | User ID so that you can filter by user if desired.
 
 ## API Key Management
 
