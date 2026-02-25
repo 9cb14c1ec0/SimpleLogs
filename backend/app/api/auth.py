@@ -210,11 +210,11 @@ async def passkey_register_verify(user: CurrentUser, request: PasskeyRegisterVer
     """Complete passkey registration."""
     try:
         credential = await WebAuthnService.verify_registration(user, request.credential, request.name)
-    except (ValueError, Exception) as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
     return PasskeyResponse(
         id=str(credential.id),
@@ -236,11 +236,11 @@ async def passkey_authenticate_verify(request: PasskeyAuthenticateVerifyRequest)
     """Verify passkey assertion and return JWT tokens (no auth required)."""
     try:
         user = await WebAuthnService.verify_authentication(request.credential, request.challenge_id)
-    except (ValueError, Exception) as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
-        )
+        ) from e
 
     access_token, refresh_token = AuthService.create_tokens(str(user.id))
     return LoginResponse(

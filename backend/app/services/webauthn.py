@@ -1,7 +1,6 @@
 import json
-import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from webauthn import (
     generate_registration_options,
@@ -14,44 +13,49 @@ from webauthn.helpers.structs import (
     PublicKeyCredentialDescriptor,
     AuthenticatorTransport,
     UserVerificationRequirement,
-    PublicKeyCredentialCreationOptions,
     AuthenticatorSelectionCriteria,
     ResidentKeyRequirement,
 )
-from webauthn.helpers import bytes_to_base64url
 
 from app.config import get_settings
 from app.models.user import User
 from app.models.passkey_credential import PasskeyCredential
+from app.models.webauthn_challenge import WebAuthnChallenge
 
 
 _CHALLENGE_TTL = 120  # seconds
 
-# In-memory challenge store: key -> (challenge_bytes, expiry_timestamp)
-_challenges: dict[str, tuple[bytes, float]] = {}
+
+async def _store_challenge(key: str, challenge: bytes) -> None:
+    """Store a challenge in the database, replacing any existing one for this key."""
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=_CHALLENGE_TTL)
+    existing = await WebAuthnChallenge.filter(challenge_key=key).first()
+    if existing:
+        existing.challenge = challenge
+        existing.expires_at = expires_at
+        await existing.save()
+    else:
+        await WebAuthnChallenge.create(
+            challenge_key=key,
+            challenge=challenge,
+            expires_at=expires_at,
+        )
 
 
-def _cleanup_expired() -> None:
-    now = time.monotonic()
-    expired = [k for k, (_, exp) in _challenges.items() if exp < now]
-    for k in expired:
-        del _challenges[k]
-
-
-def _store_challenge(key: str, challenge: bytes) -> None:
-    _cleanup_expired()
-    _challenges[key] = (challenge, time.monotonic() + _CHALLENGE_TTL)
-
-
-def _pop_challenge(key: str) -> bytes | None:
-    _cleanup_expired()
-    entry = _challenges.pop(key, None)
-    if entry is None:
+async def _pop_challenge(key: str) -> bytes | None:
+    """Retrieve and delete a challenge. Returns None if expired or missing."""
+    row = await WebAuthnChallenge.filter(challenge_key=key).first()
+    if row is None:
         return None
-    challenge, expiry = entry
-    if expiry < time.monotonic():
+    await row.delete()
+    if row.expires_at < datetime.now(timezone.utc):
         return None
-    return challenge
+    return bytes(row.challenge)
+
+
+async def _cleanup_expired() -> None:
+    """Delete expired challenges."""
+    await WebAuthnChallenge.filter(expires_at__lt=datetime.now(timezone.utc)).delete()
 
 
 class WebAuthnService:
@@ -82,7 +86,7 @@ class WebAuthnService:
             ),
         )
 
-        _store_challenge(f"reg:{user.id}", options.challenge)
+        await _store_challenge(f"reg:{user.id}", options.challenge)
 
         return options_to_json(options)
 
@@ -90,7 +94,7 @@ class WebAuthnService:
     async def verify_registration(user: User, credential_json: str, name: str) -> PasskeyCredential:
         settings = get_settings()
 
-        challenge = _pop_challenge(f"reg:{user.id}")
+        challenge = await _pop_challenge(f"reg:{user.id}")
         if challenge is None:
             raise ValueError("Registration challenge expired or not found")
 
@@ -133,7 +137,7 @@ class WebAuthnService:
             user_verification=UserVerificationRequirement.PREFERRED,
         )
 
-        _store_challenge(f"auth:{challenge_id}", options.challenge)
+        await _store_challenge(f"auth:{challenge_id}", options.challenge)
 
         return options_to_json(options), challenge_id
 
@@ -141,7 +145,7 @@ class WebAuthnService:
     async def verify_authentication(credential_json: str, challenge_id: str) -> User:
         settings = get_settings()
 
-        challenge = _pop_challenge(f"auth:{challenge_id}")
+        challenge = await _pop_challenge(f"auth:{challenge_id}")
         if challenge is None:
             raise ValueError("Authentication challenge expired or not found")
 
