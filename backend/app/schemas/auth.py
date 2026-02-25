@@ -49,3 +49,20 @@ class TOTPVerifySetupRequest(BaseModel):
 
 class TOTPDisableRequest(BaseModel):
     password: str
+
+
+class PasskeyRegisterVerifyRequest(BaseModel):
+    credential: str
+    name: str = "Passkey"
+
+
+class PasskeyAuthenticateVerifyRequest(BaseModel):
+    credential: str
+    challenge_id: str
+
+
+class PasskeyResponse(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    last_used_at: str | None

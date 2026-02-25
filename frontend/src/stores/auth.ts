@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { startAuthentication } from '@simplewebauthn/browser'
 import api, { type User, type LoginResponse } from '@/api/client'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -86,6 +87,37 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function loginWithPasskey(): Promise<'success' | 'error' | 'cancelled'> {
+    loading.value = true
+    try {
+      const optionsResp = await api.post('/auth/passkeys/authenticate/options')
+      const { options, challenge_id } = optionsResp.data
+
+      let assertion
+      try {
+        assertion = await startAuthentication({ optionsJSON: JSON.parse(options) })
+      } catch {
+        return 'cancelled'
+      }
+
+      const verifyResp = await api.post<LoginResponse>('/auth/passkeys/authenticate/verify', {
+        credential: JSON.stringify(assertion),
+        challenge_id,
+      })
+      const data = verifyResp.data
+
+      localStorage.setItem('access_token', data.access_token!)
+      localStorage.setItem('refresh_token', data.refresh_token!)
+      await fetchUser()
+      return 'success'
+    } catch (error) {
+      console.error('Passkey login failed:', error)
+      return 'error'
+    } finally {
+      loading.value = false
+    }
+  }
+
   async function initialize() {
     const token = localStorage.getItem('access_token')
     if (token) {
@@ -100,6 +132,7 @@ export const useAuthStore = defineStore('auth', () => {
     totpToken,
     isAuthenticated,
     login,
+    loginWithPasskey,
     verifyTotp,
     clearTotpState,
     logout,

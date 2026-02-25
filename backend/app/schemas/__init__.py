@@ -2,6 +2,8 @@ from app.schemas.auth import (
     Token, TokenPayload, LoginRequest, RefreshRequest,
     LoginResponse, TOTPVerifyLoginRequest, TOTPSetupResponse,
     TOTPVerifySetupRequest, TOTPDisableRequest,
+    PasskeyRegisterVerifyRequest, PasskeyAuthenticateVerifyRequest,
+    PasskeyResponse,
 )
 from app.schemas.user import UserCreate, UserUpdate, UserResponse
 from app.schemas.team import (
@@ -16,6 +18,8 @@ __all__ = [
     "Token", "TokenPayload", "LoginRequest", "RefreshRequest",
     "LoginResponse", "TOTPVerifyLoginRequest", "TOTPSetupResponse",
     "TOTPVerifySetupRequest", "TOTPDisableRequest",
+    "PasskeyRegisterVerifyRequest", "PasskeyAuthenticateVerifyRequest",
+    "PasskeyResponse",
     "UserCreate", "UserUpdate", "UserResponse",
     "TeamCreate", "TeamUpdate", "TeamResponse", "TeamCreateResponse",
     "ApiKeyCreate", "ApiKeyResponse", "ApiKeyWithSecret",

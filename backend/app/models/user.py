@@ -18,6 +18,7 @@ class User(Model):
     # Reverse relations
     team_memberships: fields.ReverseRelation["TeamMembership"]
     recovery_codes: fields.ReverseRelation["RecoveryCode"]
+    passkey_credentials: fields.ReverseRelation["PasskeyCredential"]
 
     class Meta:
         table = "users"
