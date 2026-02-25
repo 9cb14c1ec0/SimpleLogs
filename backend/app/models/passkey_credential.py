@@ -5,7 +5,7 @@ from tortoise.models import Model
 class PasskeyCredential(Model):
     id = fields.UUIDField(pk=True)
     user = fields.ForeignKeyField("models.User", related_name="passkey_credentials", on_delete=fields.CASCADE)
-    credential_id = fields.BinaryField(unique=True)
+    credential_id = fields.BinaryField()
     public_key = fields.BinaryField()
     sign_count = fields.BigIntField(default=0)
     transports = fields.TextField(null=True, default=None)
