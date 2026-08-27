@@ -112,6 +112,17 @@
       </v-menu>
 
       <v-btn
+        variant="text"
+        size="small"
+        :active="live"
+        :title="live ? 'Stop following new logs' : 'Follow new logs as they arrive'"
+        @click="toggleLive"
+      >
+        <span class="livedot" :class="`livedot--${streamStatus}`" />
+        Live
+      </v-btn>
+
+      <v-btn
         icon="mdi-refresh"
         variant="text"
         size="small"
@@ -233,7 +244,14 @@
     </div>
 
     <!-- Logs Table -->
-    <div class="logs-table">
+    <div ref="tableEl" class="logs-table">
+      <!-- Only while the reader has scrolled away from the head -->
+      <div v-if="missedWhileScrolled" class="newpill">
+        <v-btn size="small" color="primary" variant="flat" prepend-icon="mdi-arrow-up" @click="scrollToLatest">
+          {{ missedWhileScrolled.toLocaleString() }} new
+        </v-btn>
+      </div>
+
       <v-data-table-server
         v-model:items-per-page="itemsPerPage"
         v-model:page="page"
@@ -419,10 +437,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, reactive, computed, watch, watchEffect } from 'vue'
+import { onMounted, onUnmounted, ref, reactive, computed, watch, watchEffect, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import api, { type Log } from '@/api/client'
 import { pageHeader, resetPageHeader } from '@/composables/usePageHeader'
+import { useLogStream } from '@/composables/useLogStream'
 
 const route = useRoute()
 
@@ -648,10 +667,8 @@ onMounted(async () => {
 
 // Build the query string for the current filters. `toOverride` pins the upper
 // time bound so a multi-page export isn't shifted by logs ingested mid-export.
-function buildSearchParams(pageNum: number, limit: number, toOverride?: string): string {
+function buildFilterParams(toOverride?: string): URLSearchParams {
   const params = new URLSearchParams()
-  params.append('page', pageNum.toString())
-  params.append('limit', limit.toString())
 
   if (search.q) params.append('q', search.q)
   if (search.source) params.append('source', search.source)
@@ -669,6 +686,13 @@ function buildSearchParams(pageNum: number, limit: number, toOverride?: string):
     }
   }
 
+  return params
+}
+
+function buildSearchParams(pageNum: number, limit: number, toOverride?: string): string {
+  const params = buildFilterParams(toOverride)
+  params.append('page', pageNum.toString())
+  params.append('limit', limit.toString())
   return params.toString()
 }
 
@@ -694,17 +718,98 @@ async function fetchLogs() {
 }
 
 function onTableUpdate(options: { page: number; itemsPerPage: number }) {
+  // Paging away from the head and tailing the head are incompatible.
+  if (live.value && options.page !== 1) {
+    live.value = false
+    stopStream()
+  }
   page.value = options.page
   itemsPerPage.value = options.itemsPerPage
   fetchLogs()
+}
+
+// ---- Live stream ----
+
+// Newest-first, so streamed rows land at the top. Keep the list bounded or a
+// busy team grows it without limit.
+const MAX_LIVE_ROWS = 500
+// Treat "within a row height of the top" as still following the head.
+const FOLLOW_THRESHOLD_PX = 40
+
+const live = ref(false)
+const missedWhileScrolled = ref(0)
+const tableEl = ref<HTMLElement | null>(null)
+
+function scroller(): HTMLElement | null {
+  return tableEl.value?.querySelector('.v-table__wrapper') ?? null
+}
+
+const { status: streamStatus, start: startStream, stop: stopStream } = useLogStream({
+  url: () => {
+    const params = buildFilterParams()
+    const newest = logs.value[0]?.id
+    if (newest !== undefined) params.append('after_id', String(newest))
+    return `/api/v1/teams/${teamId}/logs/stream?${params.toString()}`
+  },
+  onBatch: onStreamedLogs,
+})
+
+function onStreamedLogs(incoming: Log[]) {
+  const el = scroller()
+  const following = !el || el.scrollTop <= FOLLOW_THRESHOLD_PX
+  const heightBefore = el?.scrollHeight ?? 0
+
+  // The stream sends oldest-first; the table reads newest-first.
+  logs.value = [...incoming.slice().reverse(), ...logs.value].slice(0, MAX_LIVE_ROWS)
+  totalLogs.value += incoming.length
+
+  const keys = new Set([...availableMetadataKeys.value, ...extractMetadataKeys(incoming)])
+  availableMetadataKeys.value = Array.from(keys).sort()
+
+  if (!el) return
+  if (following) {
+    nextTick(() => { el.scrollTop = 0 })
+  } else {
+    // Hold the reader's place: new rows above them would otherwise push the
+    // row they were looking at down the screen.
+    missedWhileScrolled.value += incoming.length
+    nextTick(() => { el.scrollTop += el.scrollHeight - heightBefore })
+  }
+}
+
+function scrollToLatest() {
+  missedWhileScrolled.value = 0
+  const el = scroller()
+  if (el) el.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+function toggleLive() {
+  live.value = !live.value
+  if (live.value) {
+    page.value = 1
+    missedWhileScrolled.value = 0
+    // Refetch first so the stream resumes from a known-current cursor.
+    fetchLogs().then(() => { if (live.value) startStream() })
+  } else {
+    stopStream()
+    missedWhileScrolled.value = 0
+  }
 }
 
 // Any filter change starts a fresh result set, so page 7 of the old one is
 // never carried over.
 function applyFilters() {
   page.value = 1
-  fetchLogs()
+  missedWhileScrolled.value = 0
+  const loaded = fetchLogs()
+  if (live.value) {
+    // The stream filters server-side, so it has to be rebuilt to match.
+    stopStream()
+    loaded.then(() => { if (live.value) startStream() })
+  }
 }
+
+onUnmounted(() => stopStream())
 
 function resetFilters() {
   search.q = ''
@@ -978,10 +1083,54 @@ pre {
   margin-right: 2px;
 }
 
+.livedot {
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.35;
+}
+
+.livedot--connecting {
+  background: rgb(var(--v-theme-warning));
+  opacity: 1;
+}
+
+.livedot--error {
+  background: rgb(var(--v-theme-error));
+  opacity: 1;
+}
+
+.livedot--live {
+  background: rgb(var(--v-theme-success));
+  opacity: 1;
+  animation: livepulse 2s ease-in-out infinite;
+}
+
+@keyframes livepulse {
+  50% { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .livedot--live {
+    animation: none;
+  }
+}
+
 /* The table owns all leftover height; only its body scrolls. */
 .logs-table {
+  position: relative;
   flex: 1 1 0;
   min-height: 0;
+}
+
+.newpill {
+  position: absolute;
+  top: 48px;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
 }
 
 .logs-table :deep(.v-table) {

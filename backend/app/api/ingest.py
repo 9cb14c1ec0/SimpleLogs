@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.models import Log
 from app.schemas import LogCreate, LogBatchCreate
 from app.api.deps import TeamFromApiKey
+from app.services.logstream import notify_new_logs
 
 router = APIRouter()
 
@@ -29,6 +30,7 @@ async def ingest_log(log: LogCreate, team: TeamFromApiKey):
         source=log.source,
         user_id=log.user_id,
     )
+    await notify_new_logs(team.id)
 
     return {"status": "ok"}
 
@@ -62,5 +64,6 @@ async def ingest_logs_batch(batch: LogBatchCreate, team: TeamFromApiKey):
     ]
 
     await Log.bulk_create(logs_to_create)
+    await notify_new_logs(team.id)
 
     return {"status": "ok", "count": len(logs_to_create)}

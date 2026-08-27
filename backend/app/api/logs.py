@@ -1,13 +1,60 @@
+import asyncio
+import json
 from uuid import UUID
 from typing import Annotated
 from datetime import datetime
 from fastapi import APIRouter, Query, Depends, HTTPException, status, Request
+from fastapi.responses import StreamingResponse
 from tortoise import connections
 from app.models import Log, LogLevel, TeamRole
 from app.schemas import LogResponse, UserIdBackfillRequest, UserIdBackfillResponse
 from app.api.deps import get_team_member, CurrentUser
+from app.services.logstream import log_stream
 
 router = APIRouter()
+
+# Rows pulled per wake-up. Anything beyond this is picked up on the next pass.
+STREAM_BATCH = 200
+# Also the fallback poll interval if the LISTEN connection is unavailable.
+STREAM_HEARTBEAT_SECONDS = 15
+# Collapses a burst of ingests into one query instead of one per insert.
+STREAM_DEBOUNCE_SECONDS = 0.25
+
+
+def build_log_query(
+    team,
+    request: Request,
+    q: str | None = None,
+    level: list[LogLevel] | None = None,
+    source: str | None = None,
+    user_id: str | None = None,
+    from_time: datetime | None = None,
+    to_time: datetime | None = None,
+):
+    """Filters shared by search and the live stream so the two can't drift."""
+    query = Log.filter(team=team)
+
+    # Full-text search on message
+    if q:
+        query = query.filter(message__icontains=q)
+    if level:
+        query = query.filter(level__in=level)
+    if source:
+        query = query.filter(source=source)
+    if user_id:
+        query = query.filter(user_id=user_id)
+    if from_time:
+        query = query.filter(timestamp__gte=from_time)
+    if to_time:
+        query = query.filter(timestamp__lte=to_time)
+
+    # Metadata filters (query params like metadata.field=value)
+    for key, value in request.query_params.items():
+        if key.startswith("metadata."):
+            field = key[9:]  # Remove "metadata." prefix
+            query = query.filter(metadata__contains={field: value})
+
+    return query
 
 
 @router.get("/{team_id}/logs")
@@ -42,43 +89,7 @@ async def search_logs(
     """
     team, membership = await get_team_member(team_id, user)
 
-    query = Log.filter(team=team)
-
-    # Full-text search on message
-    if q:
-        # Use PostgreSQL full-text search
-        query = query.filter(
-            message__icontains=q  # Simple fallback - for real full-text, use raw SQL
-        )
-        # For proper full-text search, you'd use:
-        # query = query.annotate(
-        #     search_rank=RawSQL("ts_rank(to_tsvector('english', message), plainto_tsquery('english', %s))", [q])
-        # ).filter(search_rank__gt=0).order_by("-search_rank")
-
-    # Level filter
-    if level:
-        query = query.filter(level__in=level)
-
-    # Source filter
-    if source:
-        query = query.filter(source=source)
-
-    # User ID filter
-    if user_id:
-        query = query.filter(user_id=user_id)
-
-    # Date range
-    if from_time:
-        query = query.filter(timestamp__gte=from_time)
-    if to_time:
-        query = query.filter(timestamp__lte=to_time)
-
-    # Metadata filters (parse query params like metadata.field=value)
-    for key, value in request.query_params.items():
-        if key.startswith("metadata."):
-            field = key[9:]  # Remove "metadata." prefix
-            # Use PostgreSQL JSONB containment
-            query = query.filter(metadata__contains={field: value})
+    query = build_log_query(team, request, q, level, source, user_id, from_time, to_time)
 
     # Pagination
     offset = (page - 1) * limit
@@ -92,6 +103,79 @@ async def search_logs(
         "limit": limit,
         "pages": (total + limit - 1) // limit,
     }
+
+
+@router.get("/{team_id}/logs/stream")
+async def stream_logs(
+    team_id: UUID,
+    user: CurrentUser,
+    request: Request,
+    q: str | None = None,
+    level: Annotated[list[LogLevel] | None, Query()] = None,
+    source: str | None = None,
+    user_id: str | None = None,
+    from_time: datetime | None = Query(None, alias="from"),
+    to_time: datetime | None = Query(None, alias="to"),
+    after_id: int | None = None,
+):
+    """
+    Server-sent stream of new logs, filtered exactly like the search endpoint.
+
+    - **after_id**: resume point. Omit to start from whatever is newest now.
+
+    Emits `event: ready` once with the starting cursor, then `event: log` per
+    entry (oldest first), plus a comment line as a heartbeat while idle.
+    """
+    team, membership = await get_team_member(team_id, user)
+
+    def matching():
+        return build_log_query(team, request, q, level, source, user_id, from_time, to_time)
+
+    async def event_stream():
+        cursor = after_id
+        if cursor is None:
+            newest = await matching().order_by("-id").first()
+            cursor = newest.id if newest else 0
+
+        yield f"event: ready\ndata: {json.dumps({'after_id': cursor})}\n\n"
+
+        async with log_stream.subscribe(team.id) as wakeup:
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                delivered = 0
+                while True:
+                    rows = await matching().filter(id__gt=cursor).order_by("id").limit(STREAM_BATCH)
+                    if not rows:
+                        break
+                    for row in rows:
+                        cursor = row.id
+                        payload = LogResponse.model_validate(row, from_attributes=True)
+                        yield f"event: log\ndata: {payload.model_dump_json()}\n\n"
+                    delivered += len(rows)
+                    if len(rows) < STREAM_BATCH:
+                        break
+
+                if delivered == 0:
+                    yield ": heartbeat\n\n"
+
+                try:
+                    await asyncio.wait_for(wakeup.wait(), timeout=STREAM_HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    pass
+                wakeup.clear()
+                await asyncio.sleep(STREAM_DEBOUNCE_SECONDS)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{team_id}/logs/{log_id}", response_model=LogResponse)
