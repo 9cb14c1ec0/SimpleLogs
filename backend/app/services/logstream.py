@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
 import asyncpg
@@ -10,11 +10,29 @@ from app.config import get_settings
 
 CHANNEL = "simplelogs_ingested"
 
+# Pool options Tortoise accepts in the URL that asyncpg.connect() does not.
+# Everything else is kept, TLS settings above all.
+_POOL_ONLY_PARAMS = frozenset(
+    {
+        "minsize",
+        "maxsize",
+        "min_size",
+        "max_size",
+        "max_queries",
+        "max_inactive_connection_lifetime",
+    }
+)
+
 
 def _dsn() -> str:
-    """asyncpg rejects the pool options Tortoise accepts in its query string."""
+    """The ORM's URL minus its pool options, which asyncpg would reject."""
     parts = urlsplit(get_settings().database_url)
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    kept = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key not in _POOL_ONLY_PARAMS
+    ]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(kept), ""))
 
 
 class LogStream:

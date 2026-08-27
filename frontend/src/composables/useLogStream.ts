@@ -20,6 +20,7 @@ export function useLogStream(options: {
   const status = ref<StreamStatus>('off')
 
   let controller: AbortController | null = null
+  let retryTimer: ReturnType<typeof setTimeout> | null = null
   let stopped = true
   let attempt = 0
   let pending: Log[] = []
@@ -86,6 +87,11 @@ export function useLogStream(options: {
 
   async function connect() {
     if (stopped) return
+    retryTimer = null
+    // A backoff retry can fire after a stop/start cycle has already opened a
+    // connection. Abort whatever is open so there is never a second reader
+    // delivering duplicate rows into the same table.
+    controller?.abort()
     controller = new AbortController()
     if (status.value !== 'live') status.value = 'connecting'
 
@@ -94,14 +100,22 @@ export function useLogStream(options: {
 
       // The access token outlives most connections but not all of them.
       if (response.status === 401) {
-        await refreshAccessToken()
-        response = await fetch(options.url(), { headers: headers(), signal: controller.signal })
+        let refreshed: string | null = null
+        try {
+          refreshed = await refreshAccessToken()
+        } catch {
+          refreshed = null
+        }
+        if (refreshed) {
+          response = await fetch(options.url(), { headers: headers(), signal: controller.signal })
+        }
       }
 
-      // Not transient: the user can't read this team, or the backend predates
-      // the stream endpoint (older builds route /stream into the by-id lookup
-      // and reject it as a bad log id).
-      if (response.status === 403 || response.status === 404 || response.status === 422) {
+      // Not transient: a 401 that survived a refresh means the session is gone,
+      // and 403/404/422 mean this user can't read the team or the backend
+      // predates the stream endpoint (older builds route /stream into the
+      // by-id lookup and reject it as a bad log id).
+      if ([401, 403, 404, 422].includes(response.status)) {
         console.error(`Log stream unavailable (${response.status})`)
         stopped = true
         status.value = 'error'
@@ -122,7 +136,7 @@ export function useLogStream(options: {
     // A clean end-of-body is still a disconnect, so reconnect either way.
     if (stopped) return
     attempt += 1
-    setTimeout(connect, Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (attempt - 1)))
+    retryTimer = setTimeout(connect, Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (attempt - 1)))
   }
 
   function start() {
@@ -134,6 +148,12 @@ export function useLogStream(options: {
 
   function stop() {
     stopped = true
+    // Without this a pending retry outlives stop(), and a later start() flips
+    // `stopped` back before it fires.
+    if (retryTimer !== null) {
+      clearTimeout(retryTimer)
+      retryTimer = null
+    }
     controller?.abort()
     controller = null
     if (flushTimer !== null) {

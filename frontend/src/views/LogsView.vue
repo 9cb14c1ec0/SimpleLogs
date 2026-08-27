@@ -128,7 +128,7 @@
         size="small"
         title="Refresh"
         :loading="loading"
-        @click="fetchLogs"
+        @click="refresh"
       />
 
       <v-spacer />
@@ -755,26 +755,44 @@ const { status: streamStatus, start: startStream, stop: stopStream } = useLogStr
 })
 
 function onStreamedLogs(incoming: Log[]) {
+  // A reconnect resumes from the newest row held, but a refetch racing the
+  // stream can still deliver rows twice. Merging by id keeps that harmless.
+  const known = new Set(logs.value.map(log => log.id))
+  const fresh = incoming.filter(log => !known.has(log.id))
+  if (fresh.length === 0) return
+
   const el = scroller()
   const following = !el || el.scrollTop <= FOLLOW_THRESHOLD_PX
   const heightBefore = el?.scrollHeight ?? 0
 
   // The stream sends oldest-first; the table reads newest-first.
-  logs.value = [...incoming.slice().reverse(), ...logs.value].slice(0, MAX_LIVE_ROWS)
-  totalLogs.value += incoming.length
+  logs.value = [...fresh.slice().reverse(), ...logs.value].slice(0, MAX_LIVE_ROWS)
+  totalLogs.value += fresh.length
 
-  const keys = new Set([...availableMetadataKeys.value, ...extractMetadataKeys(incoming)])
+  const keys = new Set([...availableMetadataKeys.value, ...extractMetadataKeys(fresh)])
   availableMetadataKeys.value = Array.from(keys).sort()
 
   if (!el) return
   if (following) {
+    // Already at the head, so nothing is unseen.
+    missedWhileScrolled.value = 0
     nextTick(() => { el.scrollTop = 0 })
   } else {
     // Hold the reader's place: new rows above them would otherwise push the
     // row they were looking at down the screen.
-    missedWhileScrolled.value += incoming.length
+    missedWhileScrolled.value += fresh.length
     nextTick(() => { el.scrollTop += el.scrollHeight - heightBefore })
   }
+}
+
+// Refetching while the stream is open would re-deliver everything ingested
+// since the connection opened, so restart it on the new cursor. Unlike
+// applyFilters this keeps the current page, which is what refresh means.
+function refresh() {
+  const loaded = fetchLogs()
+  if (!live.value) return
+  stopStream()
+  loaded.then(() => { if (live.value) startStream() })
 }
 
 function scrollToLatest() {
