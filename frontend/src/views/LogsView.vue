@@ -88,7 +88,7 @@
       </v-card-text>
     </v-card>
 
-    <!-- Column Settings & Copy Button -->
+    <!-- Column Settings & Export -->
     <div class="d-flex justify-end mb-2 gap-2">
       <v-btn
         variant="outlined"
@@ -97,15 +97,6 @@
         @click="backfillDialog = true"
       >
         Backfill User ID
-      </v-btn>
-      <v-btn
-        variant="outlined"
-        size="small"
-        prepend-icon="mdi-content-copy"
-        @click="copyTableToClipboard"
-        :disabled="logs.length === 0"
-      >
-        Copy Table
       </v-btn>
       <v-btn
         variant="outlined"
@@ -222,9 +213,18 @@
           <span>{{ item.user_id || '-' }}</span>
         </template>
         <template #item.metadata="{ item }">
-          <v-chip v-if="item.metadata" size="small" @click="showMetadata(item)">
-            View
-          </v-chip>
+          <div v-if="item.metadata" class="d-flex align-center ga-1">
+            <v-chip size="small" @click="showMetadata(item)">
+              View
+            </v-chip>
+            <v-btn
+              icon="mdi-content-copy"
+              size="x-small"
+              variant="text"
+              title="Copy metadata JSON"
+              @click="copyMetadata(item)"
+            />
+          </div>
           <span v-else>-</span>
         </template>
       </v-data-table-server>
@@ -349,7 +349,7 @@
 
     <!-- Copy Snackbar -->
     <v-snackbar v-model="copiedSnackbar" :timeout="2000" color="success">
-      Table copied to clipboard
+      Metadata copied to clipboard
     </v-snackbar>
 
     <v-snackbar v-model="exportedSnackbar" :timeout="3000" color="success">
@@ -510,7 +510,7 @@ const allStandardHeaders: Record<string, { title: string; key: string; width?: s
   message: { title: 'Message', key: 'message' },
 }
 
-const metadataHeader = { title: 'Metadata', key: 'metadata', width: '100px', sortable: false }
+const metadataHeader = { title: 'Metadata', key: 'metadata', width: '130px', sortable: false }
 
 const headers = computed(() => {
   // Filter standard headers based on visibility
@@ -625,39 +625,34 @@ function showMetadata(log: Log) {
   metadataDialog.value = true
 }
 
-// Value for one exported/copied cell. `emptyMeta` is the placeholder for a
-// missing metadata value ('-' reads fine in a table, blank is better in a file).
-function cellValue(log: Log, key: string, emptyMeta: string): string {
+// Value for one exported cell. Missing metadata is left blank rather than the
+// table's '-' placeholder.
+function cellValue(log: Log, key: string): string {
   if (key === 'timestamp') return formatDate(log.timestamp)
   if (key === 'level') return log.level.toUpperCase()
   if (key === 'source') return log.source || ''
   if (key === 'user_id') return log.user_id || ''
   if (key === 'message') return log.message
   if (key === metadataJsonKey) return log.metadata ? JSON.stringify(log.metadata) : ''
-  if (key.startsWith('metadata.')) return getMetadataValue(log, key.substring(9), emptyMeta)
+  if (key.startsWith('metadata.')) return getMetadataValue(log, key.substring(9), '')
   return ''
 }
 
-// Visible columns minus the "Metadata" column, which is just a View button.
+// Visible columns minus the "Metadata" column, which is just row actions.
 const dataColumns = computed(() => headers.value.filter(h => h.key !== 'metadata'))
 
-// Copy table data to clipboard as TSV for Excel
-async function copyTableToClipboard() {
-  const cols = dataColumns.value
-  const headerRow = cols.map(h => h.title).join('\t')
-  const dataRows = logs.value
-    .map(log => cols.map(h => cellValue(log, h.key, '-')).join('\t'))
-    .join('\n')
+const copiedSnackbar = ref(false)
 
+// Copy a single row's metadata to the clipboard as formatted JSON
+async function copyMetadata(log: Log) {
+  if (!log.metadata) return
   try {
-    await navigator.clipboard.writeText(`${headerRow}\n${dataRows}`)
+    await navigator.clipboard.writeText(JSON.stringify(log.metadata, null, 2))
     copiedSnackbar.value = true
   } catch (err) {
     console.error('Failed to copy:', err)
   }
 }
-
-const copiedSnackbar = ref(false)
 
 // ---- CSV export ----
 
@@ -711,7 +706,7 @@ function csvEscape(value: string): string {
 }
 
 function csvRow(log: Log, cols: { key: string }[]): string {
-  return cols.map(c => csvEscape(cellValue(log, c.key, ''))).join(',')
+  return cols.map(c => csvEscape(cellValue(log, c.key))).join(',')
 }
 
 function openExportDialog() {
