@@ -19,6 +19,8 @@ const router = createRouter({
       path: '/teams/:teamId/logs',
       name: 'logs',
       component: () => import('@/views/LogsView.vue'),
+      // Owns its own scrolling so the table can fill the viewport
+      meta: { fullBleed: true },
     },
     {
       path: '/teams/:teamId/analytics',

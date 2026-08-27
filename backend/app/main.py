@@ -10,6 +10,7 @@ from app.api import api_router
 from app.models import User
 from app.services.retention import RetentionService
 from app.services.partitions import ensure_upcoming_partitions
+from app.services.logstream import log_stream
 from app.migrations import run_migrations
 
 settings = get_settings()
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     scheduler.shutdown()
+    await log_stream.close()
     await close_db()
 
 

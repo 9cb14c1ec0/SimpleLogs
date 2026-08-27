@@ -16,6 +16,25 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+/**
+ * Exchange the refresh token for a new access token. Returns the new access
+ * token, or null if there is nothing to refresh with. Throws if the refresh
+ * itself is rejected, which means the session is gone.
+ */
+export async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = localStorage.getItem('refresh_token')
+  if (!refreshToken) return null
+
+  const response = await axios.post('/api/v1/auth/refresh', {
+    refresh_token: refreshToken,
+  })
+
+  const { access_token, refresh_token } = response.data
+  localStorage.setItem('access_token', access_token)
+  localStorage.setItem('refresh_token', refresh_token)
+  return access_token
+}
+
 // Handle token refresh on 401
 api.interceptors.response.use(
   (response) => response,
@@ -25,18 +44,10 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
 
-      const refreshToken = localStorage.getItem('refresh_token')
-      if (refreshToken) {
+      if (localStorage.getItem('refresh_token')) {
         try {
-          const response = await axios.post('/api/v1/auth/refresh', {
-            refresh_token: refreshToken,
-          })
-
-          const { access_token, refresh_token } = response.data
-          localStorage.setItem('access_token', access_token)
-          localStorage.setItem('refresh_token', refresh_token)
-
-          originalRequest.headers.Authorization = `Bearer ${access_token}`
+          const accessToken = await refreshAccessToken()
+          originalRequest.headers.Authorization = `Bearer ${accessToken}`
           return api(originalRequest)
         } catch {
           localStorage.removeItem('access_token')
