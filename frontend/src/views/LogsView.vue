@@ -27,7 +27,17 @@
             :active="activeFilters.length > 0"
           >
             Filters
-            <v-chip v-if="activeFilters.length" size="x-small" class="ml-2" color="primary">
+            <!-- Closing the chip clears every filter without opening the menu.
+                 VChip stops propagation on close, so it won't trigger the menu. -->
+            <v-chip
+              v-if="activeFilters.length"
+              size="x-small"
+              class="ml-2"
+              color="primary"
+              closable
+              close-label="Clear all filters"
+              @click:close="resetFilters"
+            >
               {{ activeFilters.length }}
             </v-chip>
           </v-btn>
@@ -100,6 +110,15 @@
           </v-card-actions>
         </v-card>
       </v-menu>
+
+      <v-btn
+        icon="mdi-refresh"
+        variant="text"
+        size="small"
+        title="Refresh"
+        :loading="loading"
+        @click="fetchLogs"
+      />
 
       <v-spacer />
       <v-divider vertical class="my-2" />
