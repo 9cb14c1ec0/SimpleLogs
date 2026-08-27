@@ -107,6 +107,15 @@
       >
         Copy Table
       </v-btn>
+      <v-btn
+        variant="outlined"
+        size="small"
+        prepend-icon="mdi-file-delimited-outline"
+        @click="openExportDialog"
+        :disabled="logs.length === 0"
+      >
+        Export CSV
+      </v-btn>
       <v-menu v-model="columnMenuOpen" :close-on-content-click="false" location="bottom end">
         <template #activator="{ props }">
           <v-btn v-bind="props" variant="outlined" size="small" prepend-icon="mdi-table-column">
@@ -274,9 +283,77 @@
       </v-card>
     </v-dialog>
 
+    <!-- Export Dialog -->
+    <v-dialog v-model="exportDialog" max-width="520" :persistent="exporting">
+      <v-card>
+        <v-card-title>Export CSV</v-card-title>
+        <v-card-text>
+          <p class="mb-2">
+            Your current filters match
+            <strong>{{ totalLogs.toLocaleString() }}</strong>
+            {{ totalLogs === 1 ? 'entry' : 'entries' }}
+            <span v-if="estimatedExportBytes">(approx. {{ formatBytes(estimatedExportBytes) }})</span>
+            across {{ exportColumns().length }} columns.
+          </p>
+
+          <v-alert v-if="exportTooLarge" type="error" density="compact" class="mb-2">
+            That is above the {{ EXPORT_MAX_ROWS.toLocaleString() }} row export limit. Narrow the
+            filters (tighter date range or level) before exporting everything, or export just this
+            page.
+          </v-alert>
+          <v-alert v-else-if="exportNeedsWarning" type="warning" density="compact" class="mb-2">
+            This is a large export. It is built in the browser, so it may take a while and use a lot
+            of memory. Narrowing the filters first is usually faster.
+          </v-alert>
+
+          <v-checkbox
+            v-model="exportIncludeMetadata"
+            label="Include full metadata as a JSON column"
+            density="compact"
+            hide-details
+            :disabled="exporting"
+          />
+
+          <div v-if="exporting" class="mt-4">
+            <v-progress-linear
+              :model-value="totalLogs ? (exportedRows / Math.min(totalLogs, EXPORT_MAX_ROWS)) * 100 : 0"
+              height="6"
+              rounded
+            />
+            <div class="text-caption mt-1">
+              Fetched {{ exportedRows.toLocaleString() }} rows...
+            </div>
+          </div>
+
+          <v-alert v-if="exportError" type="error" density="compact" class="mt-2">
+            {{ exportError }}
+          </v-alert>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="cancelExport">Cancel</v-btn>
+          <v-btn variant="text" :disabled="exporting" @click="runExport('page')">
+            This page only ({{ logs.length }})
+          </v-btn>
+          <v-btn
+            color="primary"
+            :loading="exporting"
+            :disabled="exportTooLarge"
+            @click="runExport('all')"
+          >
+            Export {{ totalLogs.toLocaleString() }} rows
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Copy Snackbar -->
     <v-snackbar v-model="copiedSnackbar" :timeout="2000" color="success">
       Table copied to clipboard
+    </v-snackbar>
+
+    <v-snackbar v-model="exportedSnackbar" :timeout="3000" color="success">
+      Exported {{ exportedRows.toLocaleString() }} rows to CSV
     </v-snackbar>
   </div>
 </template>
@@ -399,13 +476,13 @@ function hideAllStandardColumns() {
 }
 
 // Get display value for a metadata field
-function getMetadataValue(log: Log, key: string): string {
+function getMetadataValue(log: Log, key: string, empty = '-'): string {
   if (!log.metadata || !(key in log.metadata)) {
-    return '-'
+    return empty
   }
   const value = log.metadata[key]
   if (value === null || value === undefined) {
-    return '-'
+    return empty
   }
   if (typeof value === 'object') {
     return JSON.stringify(value)
@@ -463,29 +540,38 @@ onMounted(async () => {
   fetchLogs()
 })
 
+// Build the query string for the current filters. `toOverride` pins the upper
+// time bound so a multi-page export isn't shifted by logs ingested mid-export.
+function buildSearchParams(pageNum: number, limit: number, toOverride?: string): string {
+  const params = new URLSearchParams()
+  params.append('page', pageNum.toString())
+  params.append('limit', limit.toString())
+
+  if (search.q) params.append('q', search.q)
+  if (search.source) params.append('source', search.source)
+  if (search.userId) params.append('user_id', search.userId)
+  if (search.from) params.append('from', new Date(search.from).toISOString())
+  const to = search.to ? new Date(search.to).toISOString() : toOverride
+  if (to) params.append('to', to)
+  search.levels.forEach(level => params.append('level', level))
+
+  // Parse metadata filter
+  if (search.metadataFilter) {
+    const parts = search.metadataFilter.split('=')
+    if (parts.length === 2) {
+      params.append(`metadata.${parts[0].trim()}`, parts[1].trim())
+    }
+  }
+
+  return params.toString()
+}
+
 async function fetchLogs() {
   loading.value = true
   try {
-    const params = new URLSearchParams()
-    params.append('page', page.value.toString())
-    params.append('limit', itemsPerPage.value.toString())
-
-    if (search.q) params.append('q', search.q)
-    if (search.source) params.append('source', search.source)
-    if (search.userId) params.append('user_id', search.userId)
-    if (search.from) params.append('from', new Date(search.from).toISOString())
-    if (search.to) params.append('to', new Date(search.to).toISOString())
-    search.levels.forEach(level => params.append('level', level))
-
-    // Parse metadata filter
-    if (search.metadataFilter) {
-      const parts = search.metadataFilter.split('=')
-      if (parts.length === 2) {
-        params.append(`metadata.${parts[0].trim()}`, parts[1].trim())
-      }
-    }
-
-    const response = await api.get(`/teams/${teamId}/logs?${params.toString()}`)
+    const response = await api.get(
+      `/teams/${teamId}/logs?${buildSearchParams(page.value, itemsPerPage.value)}`
+    )
     logs.value = response.data.items
     totalLogs.value = response.data.total
 
@@ -539,38 +625,32 @@ function showMetadata(log: Log) {
   metadataDialog.value = true
 }
 
+// Value for one exported/copied cell. `emptyMeta` is the placeholder for a
+// missing metadata value ('-' reads fine in a table, blank is better in a file).
+function cellValue(log: Log, key: string, emptyMeta: string): string {
+  if (key === 'timestamp') return formatDate(log.timestamp)
+  if (key === 'level') return log.level.toUpperCase()
+  if (key === 'source') return log.source || ''
+  if (key === 'user_id') return log.user_id || ''
+  if (key === 'message') return log.message
+  if (key === metadataJsonKey) return log.metadata ? JSON.stringify(log.metadata) : ''
+  if (key.startsWith('metadata.')) return getMetadataValue(log, key.substring(9), emptyMeta)
+  return ''
+}
+
+// Visible columns minus the "Metadata" column, which is just a View button.
+const dataColumns = computed(() => headers.value.filter(h => h.key !== 'metadata'))
+
 // Copy table data to clipboard as TSV for Excel
 async function copyTableToClipboard() {
-  // Build header row (excluding the "Metadata" column which is just a button)
-  const visibleHeaders = headers.value.filter(h => h.key !== 'metadata')
-  const headerRow = visibleHeaders.map(h => h.title).join('\t')
-
-  // Build data rows
-  const dataRows = logs.value.map(log => {
-    return visibleHeaders.map(header => {
-      const key = header.key
-      if (key === 'timestamp') {
-        return formatDate(log.timestamp)
-      } else if (key === 'level') {
-        return log.level.toUpperCase()
-      } else if (key === 'source') {
-        return log.source || ''
-      } else if (key === 'user_id') {
-        return log.user_id || ''
-      } else if (key === 'message') {
-        return log.message
-      } else if (key.startsWith('metadata.')) {
-        const metaKey = key.substring(9)
-        return getMetadataValue(log, metaKey)
-      }
-      return ''
-    }).join('\t')
-  }).join('\n')
-
-  const tsv = `${headerRow}\n${dataRows}`
+  const cols = dataColumns.value
+  const headerRow = cols.map(h => h.title).join('\t')
+  const dataRows = logs.value
+    .map(log => cols.map(h => cellValue(log, h.key, '-')).join('\t'))
+    .join('\n')
 
   try {
-    await navigator.clipboard.writeText(tsv)
+    await navigator.clipboard.writeText(`${headerRow}\n${dataRows}`)
     copiedSnackbar.value = true
   } catch (err) {
     console.error('Failed to copy:', err)
@@ -578,6 +658,131 @@ async function copyTableToClipboard() {
 }
 
 const copiedSnackbar = ref(false)
+
+// ---- CSV export ----
+
+const EXPORT_PAGE_SIZE = 1000 // matches the API's max `limit`
+const EXPORT_WARN_ROWS = 10000
+const EXPORT_MAX_ROWS = 500000
+
+// Synthetic column key for the full metadata blob (no real header uses it).
+const metadataJsonKey = '__metadata_json'
+
+const exportDialog = ref(false)
+const exporting = ref(false)
+const exportedRows = ref(0)
+const exportIncludeMetadata = ref(true)
+const exportError = ref('')
+const exportedSnackbar = ref(false)
+let exportAbort: AbortController | null = null
+
+const exportTooLarge = computed(() => totalLogs.value > EXPORT_MAX_ROWS)
+const exportNeedsWarning = computed(() => totalLogs.value > EXPORT_WARN_ROWS)
+
+// Rough size estimate, extrapolated from the rows already on screen.
+const estimatedExportBytes = computed(() => {
+  if (logs.value.length === 0) return 0
+  const cols = exportColumns()
+  const sampled = logs.value.reduce((sum, log) => sum + csvRow(log, cols).length + 2, 0)
+  return Math.round((sampled / logs.value.length) * totalLogs.value)
+})
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+function exportColumns(): { title: string; key: string }[] {
+  const cols = dataColumns.value.map(h => ({ title: h.title, key: h.key }))
+  if (exportIncludeMetadata.value) cols.push({ title: 'Metadata', key: metadataJsonKey })
+  return cols
+}
+
+// Quote every field, and neutralise values a spreadsheet would treat as a
+// formula. Plain numbers are left alone so they stay numeric.
+function csvEscape(value: string): string {
+  let v = value ?? ''
+  if (/^[=+\-@\t\r]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v)) {
+    v = `'${v}`
+  }
+  return `"${v.replace(/"/g, '""')}"`
+}
+
+function csvRow(log: Log, cols: { key: string }[]): string {
+  return cols.map(c => csvEscape(cellValue(log, c.key, ''))).join(',')
+}
+
+function openExportDialog() {
+  exportError.value = ''
+  exportedRows.value = 0
+  exportDialog.value = true
+}
+
+function cancelExport() {
+  exportAbort?.abort()
+  exportDialog.value = false
+}
+
+async function runExport(scope: 'all' | 'page') {
+  exporting.value = true
+  exportError.value = ''
+  exportedRows.value = 0
+  exportAbort = new AbortController()
+
+  const cols = exportColumns()
+  const rows = [cols.map(c => csvEscape(c.title)).join(',')]
+
+  try {
+    if (scope === 'page') {
+      logs.value.forEach(log => rows.push(csvRow(log, cols)))
+      exportedRows.value = logs.value.length
+    } else {
+      const target = Math.min(totalLogs.value, EXPORT_MAX_ROWS)
+      const pinnedTo = new Date().toISOString()
+      let p = 1
+      while (exportedRows.value < target) {
+        const response = await api.get(
+          `/teams/${teamId}/logs?${buildSearchParams(p, EXPORT_PAGE_SIZE, pinnedTo)}`,
+          { signal: exportAbort.signal }
+        )
+        const items: Log[] = response.data.items
+        if (items.length === 0) break
+        items.forEach(log => rows.push(csvRow(log, cols)))
+        exportedRows.value = rows.length - 1
+        if (items.length < EXPORT_PAGE_SIZE) break
+        p++
+      }
+    }
+
+    downloadCsv(rows.join('\r\n'))
+    exportDialog.value = false
+    exportedSnackbar.value = true
+  } catch (err: any) {
+    if (!exportAbort?.signal.aborted) {
+      console.error('Failed to export:', err)
+      exportError.value = err.response?.data?.detail || 'Export failed'
+    }
+  } finally {
+    exporting.value = false
+    exportAbort = null
+  }
+}
+
+function downloadCsv(content: string) {
+  // BOM so Excel reads it as UTF-8.
+  const blob = new Blob(['\uFEFF', content], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+  link.href = url
+  link.download = `${(teamName.value || 'team').replace(/[^\w.-]+/g, '_')}-logs-${stamp}.csv`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
 
 // Backfill state
 const backfillDialog = ref(false)
