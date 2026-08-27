@@ -1,115 +1,137 @@
 <template>
-  <div>
-    <div class="d-flex align-center mb-4">
-      <v-btn icon variant="text" @click="router.push('/')">
-        <v-icon>mdi-arrow-left</v-icon>
-      </v-btn>
-      <h1 class="text-h4 ml-2">{{ teamName }} Logs</h1>
+  <div class="logs-view">
+    <!-- Command bar: search and every action in one row -->
+    <div class="cmdbar">
+      <v-text-field
+        v-model="search.q"
+        class="cmdbar__search"
+        placeholder="Search messages"
+        prepend-inner-icon="mdi-magnify"
+        variant="solo-filled"
+        density="compact"
+        flat
+        hide-details
+        single-line
+        clearable
+        @keyup.enter="applyFilters"
+        @click:clear="applyFilters"
+      />
+
+      <v-menu v-model="filterMenuOpen" :close-on-content-click="false" location="bottom end">
+        <template #activator="{ props }">
+          <v-btn
+            v-bind="props"
+            variant="text"
+            size="small"
+            prepend-icon="mdi-filter-variant"
+            :active="activeFilters.length > 0"
+          >
+            Filters
+            <v-chip v-if="activeFilters.length" size="x-small" class="ml-2" color="primary">
+              {{ activeFilters.length }}
+            </v-chip>
+          </v-btn>
+        </template>
+        <v-card min-width="340" class="pa-2">
+          <v-card-text class="d-flex flex-column ga-3 pb-2">
+            <v-select
+              v-model="search.levels"
+              :items="levelOptions"
+              label="Level"
+              density="compact"
+              variant="outlined"
+              hide-details
+              multiple
+              chips
+              closable-chips
+            />
+            <v-text-field
+              v-model="search.source"
+              label="Source"
+              density="compact"
+              variant="outlined"
+              hide-details
+              clearable
+            />
+            <v-text-field
+              v-model="search.userId"
+              label="User ID"
+              density="compact"
+              variant="outlined"
+              hide-details
+              clearable
+            />
+            <div class="d-flex ga-2">
+              <v-text-field
+                v-model="search.from"
+                label="From"
+                type="datetime-local"
+                density="compact"
+                variant="outlined"
+                hide-details
+              />
+              <v-text-field
+                v-model="search.to"
+                label="To"
+                type="datetime-local"
+                density="compact"
+                variant="outlined"
+                hide-details
+              />
+            </div>
+            <v-text-field
+              v-model="search.metadataFilter"
+              label="Metadata"
+              placeholder="user_id=123"
+              hint="Format: field=value"
+              persistent-hint
+              density="compact"
+              variant="outlined"
+              clearable
+              @keyup.enter="applyFilters(); filterMenuOpen = false"
+            />
+          </v-card-text>
+          <v-card-actions>
+            <v-btn size="small" variant="text" @click="resetFilters">Clear all</v-btn>
+            <v-spacer />
+            <v-btn size="small" color="primary" variant="flat" @click="applyFilters(); filterMenuOpen = false">
+              Apply
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-menu>
+
       <v-spacer />
+      <v-divider vertical class="my-2" />
+
       <v-btn
-        variant="tonal"
+        variant="text"
+        size="small"
         prepend-icon="mdi-chart-bar"
         :to="`/teams/${teamId}/analytics`"
       >
         Analytics
       </v-btn>
-    </div>
-
-    <!-- Search Filters -->
-    <v-card class="mb-4">
-      <v-card-text>
-        <v-row>
-          <v-col cols="12" md="4">
-            <v-text-field
-              v-model="search.q"
-              label="Search messages"
-              prepend-inner-icon="mdi-magnify"
-              clearable
-              @keyup.enter="fetchLogs"
-            />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-select
-              v-model="search.levels"
-              :items="levelOptions"
-              label="Level"
-              multiple
-              clearable
-              chips
-            />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-text-field
-              v-model="search.source"
-              label="Source"
-              clearable
-            />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-text-field
-              v-model="search.userId"
-              label="User ID"
-              clearable
-            />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-text-field
-              v-model="search.from"
-              label="From"
-              type="datetime-local"
-            />
-          </v-col>
-        </v-row>
-        <v-row>
-          <v-col cols="12" md="2">
-            <v-text-field
-              v-model="search.to"
-              label="To"
-              type="datetime-local"
-            />
-          </v-col>
-          <v-col cols="12" md="4">
-            <v-text-field
-              v-model="search.metadataFilter"
-              label="Metadata filter (e.g., user_id=123)"
-              hint="Format: field=value"
-              clearable
-            />
-          </v-col>
-          <v-col cols="12" md="6" class="d-flex align-center">
-            <v-btn color="primary" @click="fetchLogs">
-              Search
-            </v-btn>
-            <v-btn class="ml-2" variant="text" @click="resetFilters">
-              Reset
-            </v-btn>
-          </v-col>
-        </v-row>
-      </v-card-text>
-    </v-card>
-
-    <!-- Column Settings & Export -->
-    <div class="d-flex justify-end mb-2 gap-2">
       <v-btn
-        variant="outlined"
-        size="small"
-        prepend-icon="mdi-database-sync"
-        @click="backfillDialog = true"
-      >
-        Backfill User ID
-      </v-btn>
-      <v-btn
-        variant="outlined"
+        variant="text"
         size="small"
         prepend-icon="mdi-file-delimited-outline"
         @click="openExportDialog"
         :disabled="logs.length === 0"
       >
-        Export CSV
+        Export
       </v-btn>
+      <v-menu location="bottom end">
+        <template #activator="{ props }">
+          <v-btn v-bind="props" icon="mdi-dots-vertical" variant="text" size="small" />
+        </template>
+        <v-list density="compact">
+          <v-list-item prepend-icon="mdi-database-sync" title="Backfill user ID" @click="backfillDialog = true" />
+        </v-list>
+      </v-menu>
       <v-menu v-model="columnMenuOpen" :close-on-content-click="false" location="bottom end">
         <template #activator="{ props }">
-          <v-btn v-bind="props" variant="outlined" size="small" prepend-icon="mdi-table-column">
+          <v-btn v-bind="props" variant="text" size="small" prepend-icon="mdi-table-column">
             Columns
           </v-btn>
         </template>
@@ -175,8 +197,24 @@
       </v-menu>
     </div>
 
+    <!-- Active filters, one chip each. Absent entirely when nothing is set. -->
+    <div v-if="activeFilters.length" class="filterrail">
+      <v-chip
+        v-for="f in activeFilters"
+        :key="f.id"
+        size="small"
+        variant="tonal"
+        closable
+        class="filterrail__chip"
+        @click:close="f.clear(); applyFilters()"
+      >
+        <span class="filterrail__key">{{ f.key }}</span>{{ f.value }}
+      </v-chip>
+      <v-btn size="x-small" variant="text" class="ml-1" @click="resetFilters">Clear all</v-btn>
+    </div>
+
     <!-- Logs Table -->
-    <v-card>
+    <div class="logs-table">
       <v-data-table-server
         v-model:items-per-page="itemsPerPage"
         v-model:page="page"
@@ -184,19 +222,22 @@
         :items="logs"
         :items-length="totalLogs"
         :loading="loading"
-        class="elevation-1"
+        :items-per-page-options="[50, 100, 200, 500]"
+        density="compact"
+        fixed-header
+        hover
         @update:options="onTableUpdate"
       >
         <template #item.timestamp="{ item }">
-          {{ formatDate(item.timestamp) }}
+          <span class="nowrap">{{ formatDate(item.timestamp) }}</span>
         </template>
         <template #item.level="{ item }">
-          <v-chip :color="getLevelColor(item.level)" size="small">
+          <v-chip :color="getLevelColor(item.level)" size="x-small" label variant="tonal">
             {{ item.level.toUpperCase() }}
           </v-chip>
         </template>
         <template #item.message="{ item }">
-          <div class="text-truncate" style="max-width: 400px;">
+          <div class="text-truncate message-cell">
             {{ item.message }}
           </div>
         </template>
@@ -228,7 +269,7 @@
           <span v-else>-</span>
         </template>
       </v-data-table-server>
-    </v-card>
+    </div>
 
     <!-- Metadata Dialog -->
     <v-dialog v-model="metadataDialog" max-width="600">
@@ -359,12 +400,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, reactive, computed, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onMounted, onUnmounted, ref, reactive, computed, watch, watchEffect } from 'vue'
+import { useRoute } from 'vue-router'
 import api, { type Log } from '@/api/client'
+import { pageHeader, resetPageHeader } from '@/composables/usePageHeader'
 
 const route = useRoute()
-const router = useRouter()
 
 const teamId = route.params.teamId as string
 const teamName = ref('')
@@ -502,6 +543,52 @@ const search = reactive({
 
 const levelOptions = ['debug', 'info', 'warn', 'error', 'fatal']
 
+const filterMenuOpen = ref(false)
+
+// The app bar renders this view's heading
+watchEffect(() => {
+  pageHeader.title = teamName.value ? `${teamName.value} Logs` : 'Logs'
+  pageHeader.meta = `${totalLogs.value.toLocaleString()} entries`
+  pageHeader.back = '/'
+})
+onUnmounted(resetPageHeader)
+
+// Everything set beyond the always-visible search box, as removable chips.
+const activeFilters = computed(() => {
+  const out: { id: string; key: string; value: string; clear: () => void }[] = []
+
+  search.levels.forEach(level => {
+    out.push({
+      id: `level:${level}`,
+      key: 'level:',
+      value: level,
+      clear: () => { search.levels = search.levels.filter(l => l !== level) },
+    })
+  })
+  if (search.source) {
+    out.push({ id: 'source', key: 'source:', value: search.source, clear: () => { search.source = '' } })
+  }
+  if (search.userId) {
+    out.push({ id: 'user', key: 'user:', value: search.userId, clear: () => { search.userId = '' } })
+  }
+  if (search.from) {
+    out.push({ id: 'from', key: 'from:', value: formatDate(search.from), clear: () => { search.from = '' } })
+  }
+  if (search.to) {
+    out.push({ id: 'to', key: 'to:', value: formatDate(search.to), clear: () => { search.to = '' } })
+  }
+  if (search.metadataFilter) {
+    out.push({
+      id: 'meta',
+      key: 'meta:',
+      value: search.metadataFilter,
+      clear: () => { search.metadataFilter = '' },
+    })
+  }
+
+  return out
+})
+
 const allStandardHeaders: Record<string, { title: string; key: string; width?: string }> = {
   timestamp: { title: 'Timestamp', key: 'timestamp', width: '180px' },
   level: { title: 'Level', key: 'level', width: '100px' },
@@ -593,6 +680,13 @@ function onTableUpdate(options: { page: number; itemsPerPage: number }) {
   fetchLogs()
 }
 
+// Any filter change starts a fresh result set, so page 7 of the old one is
+// never carried over.
+function applyFilters() {
+  page.value = 1
+  fetchLogs()
+}
+
 function resetFilters() {
   search.q = ''
   search.levels = []
@@ -601,12 +695,18 @@ function resetFilters() {
   search.from = ''
   search.to = ''
   search.metadataFilter = ''
-  page.value = 1
-  fetchLogs()
+  applyFilters()
 }
 
+// Fixed-width, sortable-looking, and one line at any zoom: 2026-08-27 10:00:00
 function formatDate(date: string) {
-  return new Date(date).toLocaleString()
+  const d = new Date(date)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  )
 }
 
 function getLevelColor(level: string) {
@@ -811,6 +911,95 @@ async function runBackfill() {
 pre {
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* Chrome is sans and quiet; log data is mono so columns of ids, timestamps
+   and levels line up vertically for scanning. */
+.logs-view {
+  --data-font: ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, monospace;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cmdbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 52px;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.cmdbar__search {
+  max-width: 420px;
+  flex: 0 1 420px;
+  margin-right: 4px;
+}
+
+.filterrail {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.filterrail__chip {
+  font-family: var(--data-font);
+  font-size: 11px;
+}
+
+.filterrail__key {
+  opacity: 0.55;
+  margin-right: 2px;
+}
+
+/* The table owns all leftover height; only its body scrolls. */
+.logs-table {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.logs-table :deep(.v-table) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: transparent;
+}
+
+.logs-table :deep(.v-table__wrapper) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.logs-table :deep(thead th) {
+  font-size: 10px !important;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.logs-table :deep(tbody td) {
+  font-family: var(--data-font);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+/* A log line can be tens of thousands of characters; without a hard cap the
+   cell sizes the whole table to its content. */
+.message-cell {
+  max-width: 720px;
 }
 
 .metadata-cell {
