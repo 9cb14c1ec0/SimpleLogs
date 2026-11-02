@@ -51,6 +51,20 @@ ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=changeme
 ```
 
+### Single sign-on (OpenID Connect)
+
+Staff can sign in through an OIDC provider such as Authentik. Set all three to turn it on; leave any empty to turn it off:
+
+```env
+OIDC_ISSUER=https://sso.example.com/application/o/simplelogs/
+OIDC_CLIENT_ID=...
+OIDC_CLIENT_SECRET=...
+```
+
+In the provider, use a confidential client with redirect URI `https://<DOMAIN>/api/v1/auth/sso/callback`. `https://<DOMAIN>/api/v1/auth/sso/login` starts the sign-in, so it works as the app's launch URL.
+
+SSO only signs in existing users: the provider's `email` claim must match a SimpleLogs user (case-insensitive). It never creates accounts. Email/password login keeps working.
+
 ## Sending Logs
 
 Get your API key from the admin panel (Teams → Create Team or Manage Keys), then:

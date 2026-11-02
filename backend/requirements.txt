@@ -12,3 +12,6 @@ apscheduler>=3.10.4
 pyotp>=2.9.0
 qrcode[pil]>=7.4.0
 webauthn>=2.1.0
+authlib>=1.6.0
+httpx2>=2.16.0
+itsdangerous>=2.1.0

@@ -118,6 +118,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // Tokens handed back by the SSO callback, issued the same way as a password login
+  async function loginWithTokens(accessToken: string, refreshToken: string): Promise<boolean> {
+    localStorage.setItem('access_token', accessToken)
+    localStorage.setItem('refresh_token', refreshToken)
+    await fetchUser()
+    return isAuthenticated.value
+  }
+
   async function initialize() {
     const token = localStorage.getItem('access_token')
     if (token) {
@@ -133,6 +141,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     login,
     loginWithPasskey,
+    loginWithTokens,
     verifyTotp,
     clearTotpState,
     logout,
