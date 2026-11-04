@@ -189,6 +189,15 @@ export interface TopUsersVolumeResponse {
   buckets: TopUsersVolumeBucket[]
 }
 
+export interface SsoSettings {
+  enabled: boolean
+  issuer: string
+  client_id: string
+  has_client_secret: boolean
+  redirect_uri: string
+  launch_url: string
+}
+
 export interface PasskeyCredential {
   id: string
   name: string

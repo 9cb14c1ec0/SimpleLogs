@@ -1,14 +1,16 @@
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, status
-from app.models import User, Team, TeamMembership, TeamRole, ApiKey
+from fastapi import APIRouter, HTTPException, Request, status
+from app.models import User, Team, TeamMembership, TeamRole, ApiKey, SsoSettings
 from app.schemas import (
     UserCreate, UserUpdate, UserResponse,
     TeamCreate, TeamUpdate, TeamResponse, TeamCreateResponse,
     ApiKeyCreate, ApiKeyResponse, ApiKeyWithSecret,
     MembershipCreate, MembershipResponse,
 )
+from app.schemas.sso import SsoSettingsResponse, SsoSettingsUpdate
 from app.api.deps import AdminUser
 from app.services.partitions import create_team_partition, drop_team_partition
+from app.services.sso import fetch_provider_metadata
 from app.services.totp import TOTPService
 
 router = APIRouter()
@@ -343,3 +345,49 @@ async def remove_team_member(admin: AdminUser, team_id: UUID, user_id: UUID):
 
     await membership.delete()
     return {"message": "Member removed"}
+
+
+# ============== Single sign-on ==============
+
+def _sso_response(settings: SsoSettings, request: Request) -> SsoSettingsResponse:
+    return SsoSettingsResponse(
+        enabled=settings.enabled,
+        issuer=settings.issuer,
+        client_id=settings.client_id,
+        has_client_secret=bool(settings.client_secret_encrypted),
+        redirect_uri=str(request.url_for("sso_callback")),
+        launch_url=str(request.url_for("sso_login")),
+    )
+
+
+@router.get("/sso", response_model=SsoSettingsResponse)
+async def get_sso_settings(admin: AdminUser, request: Request):
+    return _sso_response(await SsoSettings.load(), request)
+
+
+@router.put("/sso", response_model=SsoSettingsResponse)
+async def update_sso_settings(admin: AdminUser, request: Request, data: SsoSettingsUpdate):
+    settings = await SsoSettings.load()
+    settings.enabled = data.enabled
+    settings.issuer = data.issuer.strip()
+    settings.client_id = data.client_id.strip()
+
+    if data.client_secret:
+        try:
+            settings.client_secret_encrypted = TOTPService.encrypt_secret(data.client_secret)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    if settings.enabled:
+        if not (settings.issuer and settings.client_id and settings.client_secret_encrypted):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Fill in the issuer URL, client ID and client secret to turn on SSO.",
+            )
+        try:
+            await fetch_provider_metadata(settings.issuer)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    await settings.save()
+    return _sso_response(settings, request)

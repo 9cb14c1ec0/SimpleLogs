@@ -5,32 +5,16 @@ Only links existing accounts: the ID token's email must match a user here.
 import logging
 from urllib.parse import urlencode
 
-from authlib.integrations.starlette_client import OAuth, OAuthError
+from authlib.integrations.starlette_client import OAuthError
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
-from app.config import get_settings
-from app.models import User
+from app.models import SsoSettings, User
 from app.services.auth import AuthService
+from app.services.sso import get_client
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 router = APIRouter()
-
-
-def sso_enabled() -> bool:
-    return bool(settings.oidc_issuer and settings.oidc_client_id and settings.oidc_client_secret)
-
-
-oauth = OAuth()
-if sso_enabled():
-    oauth.register(
-        name="authentik",
-        client_id=settings.oidc_client_id,
-        client_secret=settings.oidc_client_secret,
-        server_metadata_url=settings.oidc_issuer.rstrip("/") + "/.well-known/openid-configuration",
-        client_kwargs={"scope": "openid email profile", "code_challenge_method": "S256"},
-    )
 
 
 def _login_error(code: str) -> RedirectResponse:
@@ -38,31 +22,40 @@ def _login_error(code: str) -> RedirectResponse:
     return RedirectResponse(f"/login?sso_error={code}", status_code=status.HTTP_302_FOUND)
 
 
+async def _usable_settings() -> SsoSettings:
+    settings = await SsoSettings.load()
+    if not settings.is_usable:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SSO is not set up")
+    return settings
+
+
 @router.get("/config")
 async def sso_config():
-    return {"enabled": sso_enabled()}
+    settings = await SsoSettings.load()
+    return {"enabled": settings.is_usable}
 
 
 @router.get("/login")
 async def sso_login(request: Request):
     """Start the sign-in flow. Also used as the Authentik launch URL."""
-    if not sso_enabled():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SSO is not configured")
-
+    settings = await _usable_settings()
     redirect_uri = request.url_for("sso_callback")
-    return await oauth.authentik.authorize_redirect(request, redirect_uri)
+    try:
+        return await get_client(settings).authorize_redirect(request, redirect_uri)
+    except Exception:
+        logger.exception("Couldn't start SSO sign-in")
+        return _login_error("failed")
 
 
 @router.get("/callback", name="sso_callback")
 async def sso_callback(request: Request):
     """Finish the flow: check state, nonce and ID token, then sign in the matching user."""
-    if not sso_enabled():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SSO is not configured")
+    settings = await _usable_settings()
 
     try:
         # Authlib checks state, exchanges the code with the PKCE verifier, and
         # validates the ID token signature (issuer JWKS), issuer, audience and nonce.
-        token = await oauth.authentik.authorize_access_token(request)
+        token = await get_client(settings).authorize_access_token(request)
     except OAuthError as e:
         logger.warning("SSO callback rejected: %r", e)
         return _login_error("failed")

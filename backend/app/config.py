@@ -25,11 +25,6 @@ class Settings(BaseSettings):
     webauthn_rp_name: str = "SimpleLogs"
     webauthn_origin: str = "http://localhost:5173"
 
-    # SSO (OpenID Connect). Leave any of these empty to turn SSO off.
-    oidc_issuer: str = ""
-    oidc_client_id: str = ""
-    oidc_client_secret: str = ""
-
     # CORS
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 

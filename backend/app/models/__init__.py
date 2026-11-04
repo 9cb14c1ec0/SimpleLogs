@@ -6,5 +6,6 @@ from app.models.recovery_code import RecoveryCode
 from app.models.totp_attempt import TotpAttempt
 from app.models.passkey_credential import PasskeyCredential
 from app.models.webauthn_challenge import WebAuthnChallenge
+from app.models.sso_settings import SsoSettings
 
-__all__ = ["User", "Team", "TeamMembership", "TeamRole", "ApiKey", "Log", "LogLevel", "RecoveryCode", "TotpAttempt", "PasskeyCredential", "WebAuthnChallenge"]
+__all__ = ["User", "Team", "TeamMembership", "TeamRole", "ApiKey", "Log", "LogLevel", "RecoveryCode", "TotpAttempt", "PasskeyCredential", "WebAuthnChallenge", "SsoSettings"]
