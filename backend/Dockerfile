@@ -9,4 +9,6 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Trust Caddy's X-Forwarded-Proto so the SSO redirect URI is built as https.
+# The backend has no published port, so only the proxy can reach it.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

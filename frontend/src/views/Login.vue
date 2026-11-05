@@ -53,6 +53,19 @@
                 Login
               </v-btn>
             </v-card-actions>
+
+            <v-card-actions v-if="ssoEnabled" class="pt-0">
+              <v-btn
+                block
+                variant="tonal"
+                color="primary"
+                prepend-icon="mdi-shield-account"
+                href="/api/v1/auth/sso/login"
+                :disabled="loading"
+              >
+                Sign in with SSO
+              </v-btn>
+            </v-card-actions>
           </template>
 
           <!-- Phase 2: TOTP Code -->
@@ -99,10 +112,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import api from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 
+const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -111,6 +126,43 @@ const password = ref('')
 const totpCode = ref('')
 const error = ref('')
 const loading = ref(false)
+const ssoEnabled = ref(false)
+
+const ssoErrors: Record<string, string> = {
+  no_account: "There's no SimpleLogs account for your SSO email.",
+  disabled: 'Your SimpleLogs account is disabled.',
+  failed: "SSO sign-in didn't work. Please try again.",
+}
+
+onMounted(async () => {
+  const ssoError = route.query.sso_error
+  if (typeof ssoError === 'string') {
+    error.value = ssoErrors[ssoError] ?? ssoErrors.failed
+    router.replace({ query: {} })
+  }
+
+  // The SSO callback lands here with the tokens in the URL fragment
+  const fragment = new URLSearchParams(window.location.hash.slice(1))
+  const accessToken = fragment.get('access_token')
+  const refreshToken = fragment.get('refresh_token')
+  if (accessToken && refreshToken) {
+    history.replaceState(history.state, '', window.location.pathname)
+    loading.value = true
+    if (await authStore.loginWithTokens(accessToken, refreshToken)) {
+      router.push('/')
+      return
+    }
+    error.value = ssoErrors.failed
+    loading.value = false
+  }
+
+  try {
+    const response = await api.get<{ enabled: boolean }>('/auth/sso/config')
+    ssoEnabled.value = response.data.enabled
+  } catch {
+    ssoEnabled.value = false
+  }
+})
 
 async function handleLogin() {
   error.value = ''

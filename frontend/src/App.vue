@@ -27,6 +27,7 @@
         <template v-if="authStore.user?.is_admin">
           <v-list-item prepend-icon="mdi-account-group" title="Users" to="/admin/users" />
           <v-list-item prepend-icon="mdi-account-multiple" title="Teams" to="/admin/teams" />
+          <v-list-item prepend-icon="mdi-shield-account" title="Single sign-on" to="/admin/sso" />
         </template>
       </v-list>
 
@@ -99,6 +100,7 @@ const routeTitles: Record<string, string> = {
   settings: 'Settings',
   'admin-users': 'Users',
   'admin-teams': 'Teams',
+  'admin-sso': 'Single sign-on',
 }
 const routeTitle = computed(() => routeTitles[route.name as string] ?? '')
 

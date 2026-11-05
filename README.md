@@ -51,6 +51,12 @@ ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=changeme
 ```
 
+### Single sign-on (OpenID Connect)
+
+Staff can sign in through an OIDC provider such as Authentik. Admins set it up under **Admin → Single sign-on**: the issuer URL, client ID and client secret. That page also shows the redirect URI and launch URL to enter in the provider (use a confidential client). The client secret is encrypted with `TOTP_ENCRYPTION_KEY`, so that must be set.
+
+SSO only signs in existing users: the provider's `email` claim must match a SimpleLogs user (case-insensitive). It never creates accounts. Email/password login keeps working.
+
 ## Sending Logs
 
 Get your API key from the admin panel (Teams → Create Team or Manage Keys), then:

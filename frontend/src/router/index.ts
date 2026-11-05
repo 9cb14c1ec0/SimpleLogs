@@ -44,6 +44,12 @@ const router = createRouter({
       component: () => import('@/views/admin/Teams.vue'),
       meta: { requiresAdmin: true },
     },
+    {
+      path: '/admin/sso',
+      name: 'admin-sso',
+      component: () => import('@/views/admin/Sso.vue'),
+      meta: { requiresAdmin: true },
+    },
   ],
 })
 
